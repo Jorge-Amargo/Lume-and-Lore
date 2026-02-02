@@ -8,16 +8,25 @@ import random
 
 class VisualWeaver:
     def __init__(self, api_url="http://127.0.0.1:7860"):
-        # 1. Load config to get the book_id
-        with open("../book_config.json", "r", encoding="utf-8") as f:
+        # FIX: Use absolute paths so Streamlit can find the file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(current_dir, "..", "book_config.json")
+        
+        # Verify it exists before trying to open
+        if not os.path.exists(config_path):
+             raise FileNotFoundError(f"VisualWeaver could not find config at: {config_path}")
+
+        with open(config_path, "r", encoding="utf-8") as f:
             self.config = json.load(f)
         
         self.base_url = api_url.rstrip('/')
-        self.output_dir = os.path.join("..", "data", "output", str(self.config['book_id']), "assets")
+        
+        # FIX: Ensure the output directory is also absolute
+        # This points to: .../Lume_and_Lore/data/output/[ID]/assets
+        self.output_dir = os.path.join(current_dir, "..", "data", "output", str(self.config['book_id']), "assets")
         
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir, exist_ok=True)
-            print(f"📁 Created assets directory: {self.output_dir}")
 
     def _draw_progress_bar(self, current, total, status="Generating"):
         """Creates a smooth terminal progress bar."""

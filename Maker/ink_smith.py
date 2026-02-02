@@ -4,11 +4,13 @@ import time
 class InkSmith:
     def __init__(self, book_id):
         self.book_id = book_id
-        # Define and create the project structure: ../data/output/[ID]/assets/
-        self.base_dir = os.path.join("..", "data", "output", str(book_id))
-        self.assets_dir = os.path.join(self.base_dir, "assets")
-        self.output_file = os.path.join(self.base_dir, f"adventure_{book_id}.ink")
         
+        # FIX: Absolute Path Logic
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.base_dir = os.path.join(current_dir, "..", "data", "output", str(book_id))
+        
+        self.assets_dir = os.path.join(self.base_dir, "assets")
+        self.output_file = os.path.join(self.base_dir, f"adventure_{book_id}.ink") 
         os.makedirs(self.assets_dir, exist_ok=True)
 
     def write_intro(self, intro_data, first_node_id):

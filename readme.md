@@ -24,11 +24,63 @@ To combat LLM "amnesia," the engine uses the current `.ink` script as a persiste
 ### 3. Visual Continuity
 Using SDXL with dynamic seeds and strict directorial prompting, the engine prevents generic "static" images, forcing the AI to describe character actions and environments relative to the prose.
 
-## 🚀 Getting Started
 
-1. **Clone the Repo:** `git clone https://github.com/yourusername/Lume-and-Lore.git`
-2. **Setup Environment:**
-   * Install requirements: `pip install -r requirements.txt`
-   * Create a `.env` file with your `GEMINI_API_KEY`.
-3. **Start Stable Diffusion:** Ensure WebUI Forge is running with `--api` enabled.
-4. **Launch the Director:** `python Maker/main.py`
+
+## 🚀 Features
+* **Director Dashboard:** A visual web interface (Streamlit) to control every aspect of generation.
+* **Integrated Library:** Search and download books directly from Project Gutenberg's catalog of 70,000+ titles.
+* **Visual Weaver:** Automatic prompt engineering and image generation via WebUI Forge (SDXL).
+* **Branch-First Storytelling:** Generates "Golden Paths" (main plot) and "Exquisite Paths" (rewarding side-quests) automatically.
+* **Ink Export:** Produces ready-to-compile `.ink` files for game development.
+
+## 🛠️ Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone [https://github.com/Jorge-Amargo/Lume-and-Lore.git](https://github.com/Jorge-Amargo/Lume-and-Lore.git)
+    cd Lume-and-Lore
+    ```
+
+2.  **Install Dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+3.  **Setup Environment:**
+    Create a `.env` file in the root directory:
+    ```env
+    GEMINI_API_KEY=your_google_api_key_here
+    ```
+
+4.  **Build the Library Index (One-time setup):**
+    Ensure `GUTINDEX.ALL.new` is in the root folder, then run:
+    ```bash
+    python build_library_index.py
+    ```
+
+## 🎮 Usage
+
+1.  **Start the Stable Diffusion Server:**
+    Launch your WebUI Forge with the API flag:
+    ```bash
+    ./webui-user.bat --api
+    ```
+
+2.  **Launch the Director Dashboard:**
+    ```bash
+    streamlit run Maker/dashboard.py
+    ```
+
+3.  **Create:**
+    * Go to the **Library** tab to select or download a book.
+    * Go to **Config** to choose your AI Model and Art Style.
+    * Click **Initialize Engine** and start directing your story!
+
+## 📂 Project Structure
+* `Maker/`: Core Python logic (Architect, Weaver, Smith, Dashboard).
+* `data/books/`: Raw text files from Gutenberg.
+* `data/output/`: Generated assets and Ink scripts.
+* `web/`: HTML/JS templates for playing the generated game.
+
+## 📝 License
+MIT

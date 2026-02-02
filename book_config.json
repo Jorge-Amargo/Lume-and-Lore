@@ -1,16 +1,17 @@
 {
-    "book_id": "11",
     "title": "Alice in Wonderland",
-    "sd_model": "babes_12p10.safetensors",
-    "sd_settings": {
-        "sampler_name": "Euler a",
-        "scheduler": "Automatic",
-        "steps": 25
-    },
+    "llm_model": "gemini-2.0-flash-exp",
     "visual_settings": {
         "master_style": "Friendly, anime, sfw, bright colours",
         "positive_prompt": "masterpiece, score_9, score_8_up, cinematic, 8k, extremely detailed",
         "negative_prompt": "blurry, deformed, low quality, bad anatomy, text, signature"
     },
-    "context_summary": "The adventures of little Alice in a magical wonderland where things are a little crazy and her quest to survive and return to the real world."
+    "sd_settings": {
+        "sd_model": "babes_12p10.safetensors [c5766a28f4]",
+        "steps": 25,
+        "sampler_name": "Euler a",
+        "scheduler": "Automatic",
+        "cfg_scale": 7.0
+    },
+    "book_id": "11"
 }

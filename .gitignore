@@ -6,11 +6,18 @@ __pycache__/
 *.pyc
 
 # Production Data (User-specific)
+data/output/**/*
 data/output/*
 !data/output/.gitkeep
 data/books/*
 !data/books/example.txt
-
+data/assets/**/*
+!data/assets/.gitkeep
 # Local settings
 .vscode/
 .idea/
+
+gutenberg_index.db
+GUTINDEX.ALL.new
+*.tar.bz2
+cache/
