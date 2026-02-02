@@ -1,0 +1,16 @@
+# Secrets
+.env
+
+# Python junk
+__pycache__/
+*.pyc
+
+# Production Data (User-specific)
+data/output/*
+!data/output/.gitkeep
+data/books/*
+!data/books/example.txt
+
+# Local settings
+.vscode/
+.idea/
