@@ -1,17 +1,27 @@
 {
-    "title": "Alice in Wonderland",
-    "llm_model": "gemini-2.0-flash-exp",
+    "title": "Alice-Test",
+    "llm_model": "gemini-3-pro-preview",
+    "supported_llms": [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-3-flash-preview",
+        "gemini-3-pro-preview",
+        "gemini-2.0-flash-exp"
+    ],
     "visual_settings": {
-        "master_style": "Friendly, anime, sfw, bright colours",
+        "master_style": "moody, magical, oil-painting, no faces",
         "positive_prompt": "masterpiece, score_9, score_8_up, cinematic, 8k, extremely detailed",
-        "negative_prompt": "blurry, deformed, low quality, bad anatomy, text, signature"
+        "negative_prompt": "blurry, deformed, low quality, bad anatomy, text, signature, nsfw, nudity, faces"
     },
     "sd_settings": {
-        "sd_model": "babes_12p10.safetensors [c5766a28f4]",
+        "sd_model": "Illustrious\\plantMilkModelSuite_walnut.safetensors [1704e50726]",
+        "width": 576,
+        "height": 704,
         "steps": 25,
-        "sampler_name": "Euler a",
+        "sampler_name": "Euler",
         "scheduler": "Automatic",
         "cfg_scale": 7.0
     },
-    "book_id": "11"
+    "book_id": "Faust___Johann_Wolfgang_Von_Goethe"
 }

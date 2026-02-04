@@ -39,23 +39,33 @@ class VisualWeaver:
         if current == total:
             print() # Move to next line when done
 
-    def generate_batch(self, prompt, base_filename, count=4):
+    def generate_batch(self, prompt, base_filename, count=4, callback=None):
+        """
+        Generates 'count' images.
+        :param callback: A function that accepts (current_step, total_steps) to update UI.
+        """
         paths = []
         print(f"\n🎨 Starting art production for: {base_filename}")
         
-        # Initial bar at 0
+        # Initial terminal bar
         self._draw_progress_bar(0, count)
+        
+        # Initial UI update (if connected)
+        if callback: callback(0, count)
         
         for i in range(count):
             file_name = f"{base_filename}_{i}"
-            # This triggers the retry logic we built
             path = self.generate_image(prompt, file_name)
             
             if path:
                 paths.append(path)
             
-            # Update bar after each successful (or failed) image
+            # 1. Update Terminal Bar
             self._draw_progress_bar(i + 1, count)
+            
+            # 2. 🛠️ FIX: Update Streamlit UI Bar (if callback provided)
+            if callback:
+                callback(i + 1, count)
             
         return paths
 
@@ -75,12 +85,16 @@ class VisualWeaver:
         except Exception as e:
             print(f"⚠️ Could not check/switch model: {e}")
 
-    def generate_image(self, prompt, filename, retries=3): # FIX: Added retries=3 here
+    def generate_image(self, prompt, filename, retries=3):
         sampler = self.config.get("sd_settings", {}).get("sampler_name", "Euler a")
         scheduler = self.config.get("sd_settings", {}).get("scheduler", "Automatic")
         random_seed = random.randint(1, 1000000000)
-
+        width = self.config.get("visual_settings", {}).get("width", 512)
+        height = self.config.get("visual_settings", {}).get("height", 768)
+        
         payload = {
+            "width": width,   
+            "height": height, 
             "prompt": f"{self.config['visual_settings']['master_style']}, {prompt}, {self.config['visual_settings']['positive_prompt']}",
             "negative_prompt": self.config['visual_settings']['negative_prompt'],
             "steps": self.config.get("sd_settings", {}).get("steps", 30),
@@ -88,8 +102,6 @@ class VisualWeaver:
             "scheduler": scheduler,
             "seed": random_seed,
             "cfg_scale": 7,
-            "width": 1216,
-            "height": 832,
             "override_settings": {
                 "sd_model_checkpoint": self.config.get("sd_model")
             }

@@ -143,22 +143,13 @@ with tab_lib:
         for i, f in enumerate(available_books):
             if saved_id in f: def_idx = i; break
         current_book_filename = st.selectbox("Active Source Text", available_books, index=def_idx, key="local_sel")
-        if "last_book_sel" not in st.session_state or st.session_state.last_book_sel != current_book_filename:
-            # Strip .txt and replace underscores with spaces
-            new_title = os.path.splitext(current_book_filename)[0].replace('_', ' ')
-            st.session_state["c_title"] = new_title
-            st.session_state["last_book_sel"] = current_book_filename
-
         active_book_id = "".join(x for x in os.path.splitext(current_book_filename)[0] if x.isalnum() or x in "_-")
 
 with tab_conf:
     current_config = load_config()
     st.markdown("#### 📝 Project Metadata")
-    title = st.text_input(
-        "Project Title", 
-        value=st.session_state.get("c_title", current_config.get("title", "New Adventure")), 
-        key="c_title" 
-    )
+    title = st.text_input("Project Title", value=current_config.get("title", "New Adventure"), key="c_title")
+    
     st.markdown("#### 🧠 AI Brain")
     llms = current_config.get("supported_llms", DEFAULT_LLMS)
     def_llm = current_config.get("llm_model", "gemini-2.0-flash-exp")
@@ -207,17 +198,64 @@ if st.session_state.engine_ready and "architect" not in st.session_state:
     except: st.session_state.engine_ready = False
 
 # --- 4. MAIN INTERFACE ---
-# ==========================================
-# 🎬 MAIN INTERFACE & LOGIC
-# ==========================================
+st.title(f"🎬 Director Mode: {current_config.get('title')}")
 
-# 1. Output Paths
+# Define the path to the current project's script
+output_path = os.path.join(current_dir, "..", "data", "output", active_book_id)
+ink_file = os.path.join(output_path, "adventure.ink")
+
+# --- SELF-HEALING LOGIC ---
+# This checks if the AI 'Architect' disappeared (common after a browser refresh)
+if st.session_state.get("engine_ready") and "architect" not in st.session_state:
+    with st.spinner("🔄 Reconnecting to Director..."):
+        try:
+            # We rebuild the tools from the saved config
+            st.session_state.architect = AutonomousArchitect(os.path.join(BOOKS_DIR, current_book_filename))
+            st.session_state.weaver = VisualWeaver()
+            st.session_state.smith = InkSmith(active_book_id)
+        except Exception as e:
+            st.error(f"Reconnection failed: {e}")
+            st.session_state.engine_ready = False
+
+# --- THE START BUTTON (Only shows if engine isn't ready) ---
+if not st.session_state.engine_ready:
+    st.info("Configuration loaded. Press below to begin the adaptation.")
+    if st.button("🚀 Start Scripting", type="primary", use_container_width=True):
+        if not current_book_filename:
+            st.error("Please select a book in the Library tab first!")
+        else:
+            with st.status("🎬 Initializing Engine...") as s:
+                # Step 1: Architect (Talks to Google Gemini)
+                s.write("🧠 Connecting to AI Architect (Uploading Book)...")
+                st.session_state.architect = AutonomousArchitect(os.path.join(BOOKS_DIR, current_book_filename))
+                
+                # Step 2: Weaver (Talks to SD Forge)
+                s.write("🎨 Connecting to Visual Weaver (Checking SD Forge)...")
+                st.session_state.weaver = VisualWeaver()
+                
+                # Step 3: Smith (Sets up Ink file)
+                s.write("✍️ Connecting to Ink Smith (Creating File)...")
+                st.session_state.smith = InkSmith(active_book_id)
+                
+                s.update(label="✅ Engine Online! Starting story...", state="complete")
+                st.session_state.engine_ready = True
+                time.sleep(1) # Give it a second to breathe
+                st.rerun()
+else:
+    # 🛠️ FIX: Use these handles so you don't have to type 'st.session_state' everywhere
+    arc = st.session_state.architect
+    smth = st.session_state.smith
+    wvr = st.session_state.weaver
+
+# --- 6. MAIN INTERFACE GATEKEEPER ---
+st.title(f"🎬 Director Mode: {title}")
+
 output_path = os.path.join(current_dir, "..", "data", "output", active_book_id)
 os.makedirs(output_path, exist_ok=True)
 ink_file = os.path.join(output_path, "adventure.ink")
 
-# 2. Resume Helper
 def get_resume_state(file_path):
+    """Scans the .ink file for the last visited node."""
     if not os.path.exists(file_path): return None
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -226,27 +264,23 @@ def get_resume_state(file_path):
         return match[-1] if match else None
     except: return None
 
-# 3. Render Title (ONLY ONCE)
-st.title(f"🎬 Director Mode: {title}")
-
-# ==========================================
-# 🛑 STATE 1: SELECTION MENU (Engine OFF)
-# ==========================================
+# === STATE 1: SELECTION MENU (Engine OFF) ===
 if not st.session_state.engine_ready:
     st.markdown("### 🎬 Production Control")
     st.info("Select a mode to begin.")
     
     col1, col2 = st.columns(2)
     
-    # [A] NEW PROJECT
+    # [A] START NEW PRODUCTION
     with col1:
         st.markdown("#### 🆕 New Project")
         st.caption("Erase history and start from the Intro.")
-        # Unique Key: btn_new_project
+        # 🛠️ FIX: Added key="btn_new_project" to prevent ID collisions
         if st.button("🚀 Start Scripting", type="primary", use_container_width=True, key="btn_new_project"):
             if not current_book_filename:
                 st.error("⚠️ Please select a book in the Library tab first!")
             else:
+                # 🛠️ HARD RESET
                 st.session_state.node_id = "intro"
                 st.session_state.scene_data = None
                 st.session_state.generated_images = []
@@ -254,7 +288,7 @@ if not st.session_state.engine_ready:
                 st.session_state.engine_ready = True
                 st.rerun()
 
-    # [B] RESUME SESSION
+    # [B] RESUME EXISTING
     with col2:
         st.markdown("#### ⏯️ Resume Session")
         st.caption("Continue from the last saved .ink file.")
@@ -262,7 +296,7 @@ if not st.session_state.engine_ready:
         
         if last_node:
             st.success(f"Found Save: `{last_node}`")
-            # Unique Key: btn_resume_active
+            # 🛠️ FIX: Added key="btn_resume_active"
             if st.button("📂 Resume Adventure", use_container_width=True, key="btn_resume_active"):
                 st.session_state.node_id = f"{last_node}_next"
                 st.session_state.scene_data = None
@@ -272,35 +306,22 @@ if not st.session_state.engine_ready:
                 st.rerun()
         else:
             st.warning("No valid save file found.")
+            # 🛠️ FIX: Added key="btn_resume_disabled"
             st.button("📂 Resume Adventure", disabled=True, use_container_width=True, key="btn_resume_disabled")
 
-# ==========================================
-# 🚀 STATE 2: PRODUCTION LOOP (Engine ON)
-# ==========================================
+# === STATE 2: PRODUCTION LOOP (Engine ON) ===
 else:
-    # 🛑 STOP BUTTON (Sidebar)
+    # 🛑 STOP BUTTON (In Sidebar)
     with st.sidebar:
         st.divider()
         st.markdown("### 🛑 Session Control")
-        if not st.session_state.get('confirm_stop', False):
-            if st.button("⏹️ Stop & Save Session", type="secondary", use_container_width=True, key="btn_stop_init"):
-                st.session_state.confirm_stop = True
-                st.rerun()
-        else:
-            st.warning("⚠️ Progress on the current scene will be lost!")
-            col_yes, col_no = st.columns(2)
-            with col_yes:
-                if st.button("Confirm Stop", type="danger", key="btn_stop_final"):
-                    st.session_state.engine_ready = False
-                    st.session_state.scene_data = None
-                    st.session_state.confirm_stop = False
-                    st.rerun()
-            with col_no:
-                if st.button("Cancel", key="btn_stop_cancel"):
-                    st.session_state.confirm_stop = False
-                    st.rerun()
+        if st.button("⏹️ Stop & Save", type="secondary", use_container_width=True):
+            st.session_state.engine_ready = False
+            st.session_state.scene_data = None
+            st.rerun()
 
-    # --- WORKER CONNECTION ---
+    # --- WORKER INITIALIZATION ---
+    # Self-healing logic to reconnect tools if browser refreshed
     if "architect" not in st.session_state:
         try:
             with st.spinner("🔌 Reconnecting Engine..."):
@@ -311,8 +332,8 @@ else:
             st.error(f"Connection Failed: {e}")
             st.session_state.engine_ready = False
             st.stop()
-    if st.session_state.get('confirm_stop') or not st.session_state.engine_ready:
-            st.stop()
+
+    # Define workers for easy access
     architect = st.session_state.architect
     weaver = st.session_state.weaver
     smith = st.session_state.smith
@@ -321,7 +342,6 @@ else:
     if st.session_state.current_step == "narrative":
         st.subheader(f"📖 Scripting: {st.session_state.node_id}")
         
-        # 1. GENERATE (If Empty)
         if st.session_state.scene_data is None:
             with st.spinner("🕵️ Architect is drafting..."):
                 if st.session_state.node_id == "intro":
@@ -329,97 +349,52 @@ else:
                 else:
                     data = architect.generate_main_beat(st.session_state.node_id)
                 
+                # Validation
                 if data is None:
-                    st.error("Architect failed. Please Stop and Resume.")
+                    st.error("Architect returned empty data. Please Stop and Resume.")
                     st.stop()
+                    
+                if 'scene_id' not in data: 
+                    data['scene_id'] = f"node_{int(time.time())}"
                 
-                if 'scene_id' not in data: data['scene_id'] = f"node_{int(time.time())}"
                 st.session_state.scene_data = data
                 st.rerun()
         
-        # 2. EDITING INTERFACE
         with st.form("script_form"):
             scene = st.session_state.scene_data
+            txt = st.text_area("Narrative", value=scene.get('scene_text', ''), height=250)
+            vp = st.text_area("Visual Prompt", value=scene.get('visual_prompt', ''), height=80)
             
-            # Main Story Block
-            col_main, col_vis = st.columns([2, 1])
-            with col_main:
-                txt = st.text_area("📖 Story Text", value=scene.get('scene_text', ''), height=200)
-            with col_vis:
-                vp = st.text_area("🎨 Scene Visual Prompt", value=scene.get('visual_prompt', ''), height=200)
-            
-            st.divider()
-            st.markdown("### 🔀 Choices & Outcomes")
-            
-            updated_choices = []
-            # Unified Loop for all 3 choices
-            for i, c in enumerate(scene.get('choices', [])):
-                
-                # We use specific colors/icons for types
-                icons = {"golden": "🌟", "exquisite": "💎", "bad": "💀"}
-                icon = icons.get(c['type'], "➡️")
-                
-                with st.expander(f"{icon} Option {i+1}: {c['type'].title()}", expanded=True):
-                    # Choice Text & Outcome Text (Standard for ALL)
-                    c_txt = st.text_input("Choice Text", value=c.get('text', ''), key=f"c_txt_{i}")
-                    c_out = st.text_area("Outcome Text", value=c.get('outcome_text', ''), height=68, key=f"c_out_{i}", 
-                                         help="The immediate narrative result of picking this choice.")
-                    
-                    # Conditional Extra Field: Reward Prompt
-                    if c['type'] == 'exquisite':
-                        st.markdown("---")
-                        c_rew = st.text_area(
-                            "💎 Reward Visual Prompt", 
-                            value=c.get('reward_visual_prompt', vp), # Fallback to scene prompt if missing
-                            height=80, 
-                            key=f"c_rew_{i}",
-                            help="Describe the reward image based on the outcome text above."
-                        )
-                        c['reward_visual_prompt'] = c_rew
-                    
-                    # Save updates
-                    c['text'] = c_txt
-                    c['outcome_text'] = c_out
-                    updated_choices.append(c)
+            # Show choices for review
+            st.caption("Planned Choices:")
+            for c in scene.get('choices', []):
+                st.text(f"- [{c['type'].upper()}] {c['text']}")
 
-            if st.form_submit_button("🎨 Confirm & Generate Art", type="primary"):
+            if st.form_submit_button("🎨 Confirm & Generate Art"):
                 st.session_state.scene_data['scene_text'] = txt
                 st.session_state.scene_data['visual_prompt'] = vp
-                st.session_state.scene_data['choices'] = updated_choices
                 st.session_state.current_step = "art"
                 st.rerun()
-    # --- STEP 2: ART SELECTION ---
+
+    # STEP 2: ART (Visualizing & Writing to Ink)
     elif st.session_state.current_step == "art":
         scene = st.session_state.scene_data
         is_reward_phase = st.session_state.get('picking_reward', False)
         
-        # 1. Determine Header & Prompt
-        if is_reward_phase:
-            st.subheader(f"💎 Reward Art: {st.session_state.node_id}")
-            # Get the exquisite choice specifically
-            ex_choice = next((c for c in scene['choices'] if c['type'] == 'exquisite'), None)
-            
-            # 🛠️ FIX: Use the specific reward prompt we edited in Step 1
-            raw_prompt = ex_choice.get('reward_visual_prompt', scene.get('visual_prompt'))
-            
-            # Add stylistic modifiers for rewards
-            final_prompt = f"{raw_prompt}, masterpiece, highly detailed, magical lighting, centered composition"
-            slug = f"{scene.get('scene_id')}_reward"
-        else:
-            st.subheader(f"🎨 Scene Art: {st.session_state.node_id}")
-            final_prompt = scene.get('visual_prompt')
-            slug = scene.get('scene_id')
+        header = "💎 Selecting Reward Art" if is_reward_phase else "🎨 Selecting Scene Art"
+        st.subheader(f"{header}: {st.session_state.node_id}")
+        
+        # 🛠️ FIX: Show the prompt so you can compare it to results
+        st.info(f"**Visual Prompt:** {scene.get('visual_prompt')}")
 
-        # 2. Display Prompt for Comparison
-        st.info(f"**Visual Prompt:** {final_prompt}")
-
-        # 3. Generate Images (if empty)
         if not st.session_state.generated_images:
             with st.spinner("🎨 Painting batch..."):
-                st.session_state.generated_images = weaver.generate_batch(final_prompt, slug)
+                # Use reward-specific prompt if in reward phase, otherwise scene prompt
+                prompt = scene.get('visual_prompt')
+                slug = f"{scene.get('scene_id')}_reward" if is_reward_phase else scene.get('scene_id')
+                st.session_state.generated_images = weaver.generate_batch(prompt, slug)
                 st.rerun()
 
-        # 4. Display Grid & Select
         cols = st.columns(4)
         for i, img_path in enumerate(st.session_state.generated_images):
             with cols[i]:
@@ -428,53 +403,48 @@ else:
                     base_id = scene.get('scene_id')
                     
                     if not is_reward_phase:
-                        # === PHASE 1: SAVE MAIN SCENE ===
-                        shutil.move(img_path, os.path.join(weaver.output_dir, f"{base_id}_main.png"))
+                        # --- PHASE 1: Scene Image ---
+                        target = os.path.join(weaver.output_dir, f"{base_id}_main.png")
+                        shutil.move(img_path, target)
                         
-                        # Clean up unused images
+                        # Cleanup others
                         for temp in st.session_state.generated_images:
                             if temp != img_path and os.path.exists(temp): os.remove(temp)
                         
-                        # Check if we need to go to Reward Phase
+                        # Check if we need to pick a reward
                         ex_idx = next((idx for idx, c in enumerate(scene['choices']) if c['type'] == 'exquisite'), None)
                         if ex_idx is not None:
                             st.session_state.picking_reward = True
                             st.session_state.ex_choice_idx = ex_idx
-                            st.session_state.generated_images = [] # Clear batch for next pass
+                            st.session_state.generated_images = [] # Clear for new batch
                             st.rerun()
                         else:
+                            # No reward? Finish immediately
                             finalize_ink_node(base_id, scene)
                     else:
-                        # === PHASE 2: REWARD ===
+                        # --- PHASE 2: Reward Image ---
                         idx = st.session_state.ex_choice_idx
                         target = os.path.join(weaver.output_dir, f"{base_id}_result_{idx+1}_reward.png")
                         shutil.move(img_path, target)
-                        
-                        # 🛠️ FIX: Cleanup Unused Reward Images
-                        for temp in st.session_state.generated_images:
-                            if temp != img_path and os.path.exists(temp): 
-                                try:
-                                    os.remove(temp)
-                                except: pass # Safely ignore file lock errors
-                        
-                        finalize_ink_node(base_id, scene)
+                        # Finalize
+                        finalize_ink_node(base_id, scene)   
 
-# --- HELPER FUNCTION (Place at very bottom or top) ---
-def finalize_ink_node(base_id, scene):
-    curr_id = st.session_state.node_id
-    next_node_id = f"{base_id}_next"
-    
-    if curr_id == "intro":
-        st.session_state.smith.write_intro(scene, next_node_id)
-    else:
-        st.session_state.smith.write_main_node_start(base_id, scene['scene_text'], f"{base_id}_main", scene['choices'], next_node_id)
-    
-    st.session_state.smith.write_choice_outcomes(base_id, scene['choices'], next_node_id)
-    
-    st.session_state.node_id = next_node_id
-    st.session_state.current_step = "narrative"
-    st.session_state.scene_data = None
-    st.session_state.generated_images = []
-    st.session_state.picking_reward = False
-    st.rerun()
+                        # Finish and write to Ink
+                        curr_id = st.session_state.node_id
+                        next_node_id = f"{base_id}_next"
+                        
+                        if curr_id == "intro":
+                            smith.write_intro(scene, next_node_id)
+                        else:
+                            smith.write_main_node_start(base_id, scene['scene_text'], f"{base_id}_main", scene['choices'], next_node_id)
+                        
+                        smith.write_choice_outcomes(base_id, scene['choices'], next_node_id)
+
+                        # Reset State
+                        st.session_state.node_id = next_node_id
+                        st.session_state.current_step = "narrative"
+                        st.session_state.scene_data = None
+                        st.session_state.generated_images = []
+                        st.session_state.picking_reward = False
+                        st.rerun()
                         

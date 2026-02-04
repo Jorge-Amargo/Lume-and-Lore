@@ -3,95 +3,84 @@ import time
 
 class InkSmith:
     def __init__(self, book_id):
-        self.book_id = book_id
+        self.base_dir = os.path.join(os.path.dirname(__file__), "..", "data", "output", book_id)
+        os.makedirs(self.base_dir, exist_ok=True)
+        self.ink_path = os.path.join(self.base_dir, "adventure.ink")
         
-        # FIX: Absolute Path Logic
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        self.base_dir = os.path.join(current_dir, "..", "data", "output", str(book_id))
-        
-        self.assets_dir = os.path.join(self.base_dir, "assets")
-        self.output_file = os.path.join(self.base_dir, f"adventure_{book_id}.ink") 
-        os.makedirs(self.assets_dir, exist_ok=True)
+        # Initialize file with Variables if it doesn't exist
+        if not os.path.exists(self.ink_path):
+            header = [
+                "// Lume & Lore Adventure Script",
+                "VAR health = 100",
+                "VAR morale = 50",
+                "VAR last_node = \"intro\"",
+                "-> intro\n\n"
+            ]
+            self._write_to_file(header)
 
-    def write_intro(self, intro_data, first_node_id):
-        """Initializes the Ink file with variables and the introduction."""
-        with open(self.output_file, "w", encoding="utf-8") as f:
-            f.write(f"// Lume & Lore: {self.book_id} Script\n")
+    def write_intro(self, scene_data, next_slug):
+        # 🛠️ FIX: Use the actual scene_id (e.g., "intro") so result nodes match
+        scene_id = scene_data.get('scene_id', 'intro')
+        lines = [
+            "== intro ==",
+            f"~ last_node = \"intro\"",
+            f"{scene_data.get('scene_text')}",
+            f"# IMAGE: intro_main.png",
+            # 🛠️ FIX: This writes the '*' choices into the intro node
+            self._format_choices(scene_id, scene_data.get('choices', []), next_slug),
+            "\n"
+        ]
+        self._append_to_file(lines)
+
+    def write_main_node_start(self, scene_id, text, image_file, choices, next_slug):
+        lines = [
+            f"== {scene_id} ==",
+            f"~ last_node = \"{scene_id}\"", 
+            f"{text}",
+            f"# IMAGE: {image_file}.png",
+            self._format_choices(scene_id, choices, next_slug),
+            "\n"
+        ]
+        self._append_to_file(lines)
+
+    def write_bridge(self, from_id, to_id):
+        """🛠️ NEW: Links a placeholder (e.g. intro_next) to a semantic name (e.g. the_tiny_cake)"""
+        if from_id == to_id: return # No bridge needed if names match
+        lines = [f"== {from_id} ==", f"-> {to_id}\n"]
+        self._append_to_file(lines)
+
+    def write_choice_outcomes(self, parent_id, choices, next_main_id):
+        lines = []
+        for i, choice in enumerate(choices):
+            choice_slug = f"{parent_id}_result_{i+1}"
+            lines.append(f"== {choice_slug} ==")
             
-            f.write("=== intro ===\n")
-            f.write(f"# IMAGE: INTRO_SCENE_final\n")
-            f.write(f"{intro_data.get('scene_text', 'The journey begins...')}\n")
-            f.write(f"-> {first_node_id}\n\n")
+            outcome = choice.get('outcome_text', "You move forward.")
+            lines.append(f"{outcome}")
 
-    def log_asset(self, asset_name):
-        """Logs the asset to a manifest file for easy verification."""
-        manifest_path = os.path.join(self.base_dir, "asset_manifest.txt")
-        with open(manifest_path, "a", encoding="utf-8") as f:
-            f.write(f"[{time.strftime('%H:%M:%S')}] Asset Created: {asset_name}.png\n")
-
-    def write_main_node_start(self, scene, final_image_name):
-        node_id = scene.get('node_id', 'unknown')
-        # Log it!
-        self.log_asset(final_image_name) 
-        
-        with open(self.output_file, "a", encoding="utf-8") as f:
-            f.write(f"\n=== {node_id} ===\n")
-            f.write(f"# IMAGE: {final_image_name}\n")
-            f.write(f"{scene.get('scene_text')}\n\n")
-
-    def write_choices(self, main_scene_id, choices, reward_node_id=None, chapter_start_id="intro"):
-        """Writes the branching logic. 'Bad' choices now loop back to the chapter start."""
-        with open(self.output_file, "a", encoding="utf-8") as f:
-            for i, choice in enumerate(choices):
-                c_type = choice.get('type') or choice.get('choice_type') or "golden"
-                c_text = choice.get('text', f"Option {i+1}")
+            if choice.get('type') == 'exquisite':
+                lines.append(f"# IMAGE: {choice_slug}_reward.png")
+            elif choice.get('type') == 'bad':
+                lines.append("\n<i>Fate frowns. You must try again.</i>")
+                lines.append(f"-> {parent_id}\n")
+                continue # Bad path loops back
                 
-                if c_type == 'golden':
-                    f.write(f"+ [{c_text}] -> NEXT_SCENE_PLACEHOLDER\n")
-                
-                elif c_type == 'exquisite':
-                    target = reward_node_id if reward_node_id else "NEXT_SCENE_PLACEHOLDER"
-                    f.write(f"+ [{c_text}] -> {target}\n")
-                
-                elif c_type == 'bad':
-                    # Extract the failure message from the AI's response
-                    failure_text = choice.get('outcome_text') or choice.get('death_text') or "Fate has a cruel way of intervening."
-                    
-                    f.write(f"+ [{c_text}]\n")
-                    f.write(f"    {failure_text}\n")
-                    f.write(f"    *** Better luck next time! Try again. ***\n")
-                    # Send the player back to the start of the chapter
-                    f.write(f"    -> {chapter_start_id}\n") 
-            f.write("\n")
-
-    def write_reward_node(self, reward_scene, final_image_name, parent_id):
-        """Writes a side-scene that provides a reward then returns to the main path."""
-        reward_node_id = f"{parent_id}_reward"
-        with open(self.output_file, "a", encoding="utf-8") as f:
-            f.write(f"=== {reward_node_id} ===\n")
-            f.write(f"# IMAGE: {final_image_name}\n")
+            lines.append(f"-> {next_main_id}\n")
             
-            # Check for variable adjustments (Malus/Bonus)
-            updates = reward_scene.get('variable_change') or {}
-            if isinstance(updates, dict):
-                for var, val in updates.items():
-                    # Ink syntax for incrementing/decrementing
-                    op = "+=" if val >= 0 else "-="
-                    f.write(f"~ {var} {op} {abs(val)}\n")
-            
-            f.write(f"{reward_scene.get('scene_text', 'A moment of unexpected insight.')}\n")
-            f.write(f"+ [Return to the main path] -> NEXT_SCENE_PLACEHOLDER\n\n")
-        return reward_node_id
+        self._append_to_file(lines)
 
-    def finalize_links(self, next_node_id):
-        """Searches for placeholders and replaces them with the actual next node ID."""
-        if not os.path.exists(self.output_file): return
-        
-        with open(self.output_file, "r", encoding="utf-8") as f:
-            content = f.read()
-        
-        # This connects the 'Golden' and 'Exquisite Return' paths to the next main beat
-        new_content = content.replace("NEXT_SCENE_PLACEHOLDER", next_node_id)
-        
-        with open(self.output_file, "w", encoding="utf-8") as f:
-            f.write(new_content)
+    def _format_choices(self, parent_id, choices, next_main_id):
+        choice_lines = []
+        for i, c in enumerate(choices):
+            choice_slug = f"{parent_id}_result_{i+1}"
+            choice_lines.append(f"* [{c.get('text')}] -> {choice_slug}")
+        return "\n".join(choice_lines)
+
+    # --- THE HELPER METHODS (Ensure these are inside the class!) ---
+    def _write_to_file(self, lines):
+        with open(self.ink_path, "w", encoding="utf-8") as f:
+            f.writelines(line + "\n" for line in lines)
+
+    def _append_to_file(self, lines):
+        with open(self.ink_path, "a", encoding="utf-8") as f:
+            f.writelines(line + "\n" for line in lines)
