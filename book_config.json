@@ -1,6 +1,6 @@
 {
     "book_id": "Wuthering_Heights___Emily_Bront_",
-    "title": "Wuthering Heights   Emily Bront ",
+    "title": "Wuthering Heights   Emily Bronte",
     "llm_model": "gemini-3-flash-preview",
     "supported_llms": [
         "gemini-2.5-flash-lite",
@@ -11,7 +11,7 @@
         "gemini-2.0-flash-exp"
     ],
     "generation": {
-        "images_per_scene": 2,
+        "images_per_scene": 3,
         "sounds_per_scene": 1,
         "sound_length_seconds": 5,
         "sound_loop": true
@@ -29,7 +29,7 @@
         "Cathrine": "40 years old, woman, victorian dress, long black hair, distant"
     },
     "sd_settings": {
-        "sd_model": "SDXL\\ramthrustsNSFWPINK_alchemyMix169.safetensors [595d5eeedd]",
+        "sd_model": "SDXL\\plantMilkModelSuite_walnut.s_IL.safetensors [1704e50726]",
         "width": 512,
         "height": 832,
         "steps": 25,

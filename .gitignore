@@ -20,9 +20,10 @@ data/assets/**/*
 .pytest_cache
 gutenberg_index.db
 GUTINDEX.ALL.new
-inclecate.exe
+ink*
 *.tar.bz2
 cache/
 data/output/
 data/cache/
 *.db
+*.exe

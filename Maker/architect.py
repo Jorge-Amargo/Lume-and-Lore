@@ -175,12 +175,14 @@ class AutonomousArchitect:
         return data
 
     def generate_transition(self, parent_id, choice_obj):
+        self._ensure_chat_ready()
         prompt = f"Player chose: {choice_obj['text']}. Write a creative outcome and a visual prompt. Return JSON."
         resp = self.chat.send_message(prompt)
         return self._parse_json(resp.text)
 
     def resume_session(self, ink_summary):
         """Injects previous game state back into the AI context."""
+        self._ensure_chat_ready()
         prompt = f"""
         Resume the game based on this state summary:
         {ink_summary}
@@ -191,6 +193,7 @@ class AutonomousArchitect:
         return self._parse_json(resp.text)
 
     def reset_to_main_path(self, parent_node_id):
+        self._ensure_chat_ready()
         self.chat.send_message(f"Side-path finished. Returning to node {parent_node_id}.")
 
     def _validate_and_retry(self, raw_text, required_keys, retries=3):

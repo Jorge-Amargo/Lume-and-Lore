@@ -697,13 +697,6 @@ if not st.session_state.engine_ready:
                                 existing_ink = f.read()
                             
                             # 3. Attempt the Resume Handshake
-                            # This is where it likely fails silently
-                            try:
-                                with st.spinner("🧠 Re-establishing neural link to the Architect..."):
-                                    st.session_state.architect._setup_context_cache()
-                            except Exception as e:
-                                raise ValueError(f"Could not connect to Google AI: {e}")
-                            
                             response = st.session_state.architect.resume_session(existing_ink)
                             
                             if response is None:
