@@ -99,22 +99,34 @@ class AutonomousArchitect:
         {
             "scene_id": "intro",
             "scene_text": "...",
-            "visual_prompt": "...",
+            "visual_prompt": "A concise prompt for SD1.5 image-generation (buildings, interior, landscape, colors)",
+            "audio_prompt": "A concise prompt for SFX sound-generation (mood, dominant sounds, loopable)",
             "choices": [
                 {"text": "...", "type": "golden", "outcome_text": "..."},
                 {"text": "...", "type": "exquisite", "outcome_text": "...", "reward_visual_prompt": "..."},
                 {"text": "...", "type": "bad", "outcome_text": "..."}
             ]
         }
+        NOTE: The 'audio_prompt' should be concise (a few words) and focused on ambience or textures, suitable to feed into a TTS/sound synthesis API.
         """
         try:
             resp = self.chat.send_message(prompt)
-            return self._parse_json(resp.text)
+            data = self._parse_json(resp.text)
+            if data is None:
+                return None
+            if 'audio_prompt' not in data or not data.get('audio_prompt'):
+                vp = data.get('visual_prompt', '')
+                data['audio_prompt'] = f"{vp} — ambience, background texture, loopable"
+                print(f"ℹ️ Architect: derived audio_prompt: {data['audio_prompt']}")
+            else:
+                print(f"ℹ️ Architect: audio_prompt from LLM: {data.get('audio_prompt')}")
+            return data
         except Exception as e:
             print(f"❌ Handshake or API Error: {e}")
             return {
                 "scene_text": "The story begins in a mist...",
                 "visual_prompt": "mysterious fog, cinematic",
+                "audio_prompt": "mysterious fog, soft wind, distant chimes, loopable",
                 "choices": [
                     {"text": "Step forward", "type": "golden", "outcome_text": "You advance."},
                     {"text": "Look closer", "type": "exquisite", "outcome_text": "You find a clue."},
@@ -139,16 +151,28 @@ class AutonomousArchitect:
         {{
             "scene_id": "...",
             "scene_text": "...",
-            "visual_prompt": "...",
+            "visual_prompt": "A concise prompt for SD1.5 image-generation (buildings, interior, landscape, colors)",
+            "audio_prompt": "A concise prompt for SFX generation (mood, dominant sounds, loopable)",
             "choices": [
                 {{"text": "...", "type": "golden", "outcome_text": "..."}},
                 {{"text": "...", "type": "exquisite", "outcome_text": "...", "reward_visual_prompt": "..."}},
                 {{"text": "...", "type": "bad", "outcome_text": "..."}}
             ]
         }}
+        NOTE: The 'audio_prompt' should be concise (a few words) and focused on ambience or textures, suitable to feed into a TTS/sound synthesis API.
         """
         resp = self.chat.send_message(prompt)
-        return self._parse_json(resp.text)
+        data = self._parse_json(resp.text)
+        # Fallback: if LLM didn't provide an explicit audio_prompt, derive a short one from the visual prompt
+        if data is None:
+            return None
+        if 'audio_prompt' not in data or not data.get('audio_prompt'):
+            vp = data.get('visual_prompt', '')
+            data['audio_prompt'] = f"{vp} — ambience, background texture, loopable"
+            print(f"ℹ️ Architect: derived audio_prompt: {data['audio_prompt']}")
+        else:
+            print(f"ℹ️ Architect: audio_prompt from LLM: {data.get('audio_prompt')}")
+        return data
 
     def generate_transition(self, parent_id, choice_obj):
         prompt = f"Player chose: {choice_obj['text']}. Write a creative outcome and a visual prompt. Return JSON."

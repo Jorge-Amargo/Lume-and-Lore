@@ -1,49 +1,321 @@
 body, html {
     margin: 0; padding: 0;
     height: 100%; width: 100%;
-    font-family: 'Georgia', serif; /* Literary Feel */
-    background-color: #1a1a1a; color: #f4f1ea;
-    overflow: hidden; /* Prevent global scroll */
+    /* 🛠️ STYLE: Using an elegant serif stack with a larger base size */
+    font-family: 'Garamond', 'Georgia', serif;
+    background-color: #0d0d0d; color: #f4eee0;
+    overflow: hidden;
+}
+
+#story-text p {
+    font-size: 1.5rem; /* Unified size */
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+    animation: fadeInText 1.2s ease-out forwards;
+}
+@keyframes fadeInText {
+    from { opacity: 0; filter: blur(5px); transform: translateY(5px); }
+    to { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+.outcome-text {
+    color: #ffd700; /* Gold-ish tint to distinguish it as an outcome */
+    font-style: italic;
+    animation: fadeInText 0.5s ease-out forwards;
+}
+
+@keyframes slowFadeIn {
+    0% { opacity: 0; filter: blur(10px); }
+    100% { opacity: 1; filter: blur(0); }
+}
+
+
+
+#status-bar {
+    position: fixed; top: 0; left: 0; right: 0; height: 40px;
+    background: rgba(0,0,0,0.8); display: flex;
+    justify-content: center; align-items: center; gap: 40px;
+    border-bottom: 1px solid #444; z-index: 100;
 }
 
 #game-container {
-    display: flex;
-    flex-direction: column; /* Default: Portrait/Mobile */
+    display: grid; /* Explicitly set to grid */
+    
+    /* 40% image on left, 60% content on right (10% more image space) */
+    grid-template-columns: 40% 60%; 
+    
+    /* 65% for story text, 35% for choices */
+    grid-template-rows: 65vh 35vh; 
+    
+    grid-template-areas: 
+        "v-image v-text"
+        "v-image v-choices";
+    
+    gap: 0;
     height: 100vh;
+    padding: 0;
+    box-sizing: border-box;
+    background-color: #0d0d0d;
+    align-items: start;    /* Align grid rows to top */
+    justify-items: stretch; /* Stretch cells to full width */
 }
 
-/* Landscape Mode (iPad / Desktop) */
-@media (min-orientation: landscape) {
-    #game-container { flex-direction: row; }
-    #image-container { width: 50%; height: 100%; }
-    #text-container { width: 50%; height: 100%; }
+/* Ensure the image container fits the left column */
+#scene-image {
+    grid-area: v-image; /* Spans left side (defined in game-container) */
+    display: block;      /* Prevent inline whitespace gaps */
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center center;
+    border-right: 1px solid #333; /* Clean separation line */
+}
+
+
+.game-viewport {
+    display: flex;
+    flex-direction: row;
+    flex: 1; /* Takes up all space except the choices bar */
+    overflow: hidden;
+}
+
+@media (orientation: landscape) {
+    #game-container { 
+        grid-template-columns: 40% 60%;
+        grid-template-rows: 65vh 35vh;
+    }
 }
 
 #image-container {
-    flex: 0 0 40%; /* Image takes 40% height on mobile */
+    grid-area: v-image;
+    height: 100%;
+    width: 100%;
     background: #000;
-    display: flex; align-items: center; justify-content: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid #333;
+    box-sizing: border-box;
+    overflow: hidden; /* Ensure image doesn't create extra visual area */
+    min-width: 0;     /* Allow container to shrink without forcing extra width */
 }
 
-#scene-image {
-    max-width: 100%; max-height: 100%;
-    object-fit: contain; /* Keeps our 3:2 ratio clean */
+/* The Reward Effect */
+.reward-pulse {
+    box-shadow: 0 0 25px rgba(255, 215, 0, 0.6); /* Gold glow */
+    border: 2px solid #ffd700 !important;
+    animation: pulse-gold 2s infinite;
+}
+
+@keyframes pulse-gold {
+    0% { transform: scale(1); box-shadow: 0 0 25px rgba(255, 215, 0, 0.6); }
+    50% { transform: scale(1.02); box-shadow: 0 0 40px rgba(255, 215, 0, 0.8); }
+    100% { transform: scale(1); box-shadow: 0 0 25px rgba(255, 215, 0, 0.6); }
+}
+
+@keyframes gold-glow {
+    from { box-shadow: 0 0 10px gold; }
+    to { box-shadow: 0 0 40px gold; }
+}
+
+#reward-banner {
+    position: absolute; bottom: 20px; background: gold; color: black;
+    padding: 5px 20px; font-weight: bold; display: none;
+    border-radius: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
 }
 
 #text-container {
-    flex: 1;
+    grid-area: v-text;
+    height: 100%;
+    width: 100%;
     padding: 2rem;
-    overflow-y: auto; /* Only text area scrolls if needed */
-    display: flex; flex-direction: column;
+    display: flex;
+    flex-direction: column;
+    background: #121212;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #444 #121212;
+    box-sizing: border-box;
+    min-width: 0; /* Allow text to wrap rather than force layout overflow */
+    align-items: stretch;   /* Stretch children to full available width */
+    justify-content: flex-start;
+}
+#story-text {
+    flex-grow: 1;
+    margin-bottom: 2rem;
+    width: 100%;       /* Force full width */
+    max-width: none;   /* Remove any reading-mode limits */
+    align-self: start;
+    text-align: left;  /* Ensure text is aligned to left edge */
+    margin-left: 0;    /* Remove unwanted left offset */
+    padding-left: 0;
 }
 
-#story-text { line-height: 1.6; font-size: 1.2rem; margin-bottom: 2rem; }
+#story-text p {
+    margin-left: 0 !important; /* Force paragraphs to flush left */
+    margin-right: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+}
+
+#choices-container {
+    grid-area: v-choices;
+    width: 100%;
+    height: 100%;
+    padding: 2rem 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    border-top: 1px solid #333;
+    background: #111;
+    overflow-y: auto;
+    justify-content: flex-start;
+    box-sizing: border-box;
+}
 
 .choice-btn {
-    display: block; width: 100%;
-    background: #3d3d3d; border: 1px solid #555;
-    color: white; padding: 1rem; margin-top: 0.5rem;
-    cursor: pointer; text-align: left; transition: 0.3s;
+    padding: 12px 15px;
+    background: #2a2a2a;
+    color: #e0d8c3;
+    border: 1px solid #444;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'Garamond', 'Georgia', serif;
+    font-size: 1.5rem; /* Unified size (Same as story text) */
+    transition: all 0.3s ease;
+    display: block; 
+    width: 100%; 
+    text-align: left;
 }
 
-.choice-btn:hover { background: #b1946c; color: black; }
+.choice-btn:hover {
+    background: #3a3a3a;
+    color: #000;
+    border-color: gold;
+    background: gold; /* Priority hover state */
+    transform: translateX(-2px);
+    box-shadow: 0 4px 12px rgba(255, 215, 0, 0.2);
+}
+
+/* Overlay Screens */
+.overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    /* 🛠️ FIX: Use placeholder as background. cover ensures it fits the whole screen */
+    background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('../data/output/placeholder.png');
+    background-size: cover;
+    background-position: center;
+    z-index: 1000;
+    display: flex; justify-content: center; align-items: center;
+    text-align: center;
+}
+
+.menu-content, .gallery-content {
+    background: #1a1a1a; padding: 3rem; border-radius: 15px;
+    border: 1px solid #333; max-width: 800px; width: 90%;
+}
+
+.menu-buttons { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
+
+.menu-btn {
+    padding: 15px; border-radius: 5px; border: none; font-weight: bold; cursor: pointer; font-size: 1rem;
+}
+.primary { background: gold; color: black; }
+.secondary { background: #333; color: white; }
+.tertiary { background: transparent; color: gold; border: 1px solid gold; }
+
+/* Gallery Logic */
+.grid-container {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 15px; margin-top: 20px; max-height: 50vh; overflow-y: auto;
+}
+
+.gallery-thumb { width: 100%; border-radius: 5px; border: 1px solid #444; }
+
+.gallery-tabs { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; }
+.tab-btn { background: #222; color: #888; border: none; padding: 10px 20px; cursor: pointer; }
+.tab-btn.active { background: gold; color: black; }
+
+.overlay-btn {
+    background: rgba(0,0,0,0.6); 
+    border: 1px solid #555; 
+    color: #e0d8c3;
+    padding: 8px 12px; 
+    border-radius: 5px; 
+    cursor: pointer;
+    font-family: 'Georgia', serif;
+    transition: background 0.2s;
+}
+
+.overlay-btn:hover {
+    background: gold;
+    color: black;
+    border-color: gold;
+}
+
+/* MOBILE RESPONSIVENESS */
+@media (max-width: 768px) {
+    #game-container {
+        grid-template-columns: 1fr;
+        grid-template-rows: 25vh auto auto;
+        grid-template-areas:
+            "v-image"
+            "v-text"
+            "v-choices";
+    }
+    
+    #scene-image {
+        height: 25vh;
+        border-right: none;
+        border-bottom: 1px solid #333;
+        width: 100%;
+    }
+    
+    #text-container {
+        height: auto;
+        min-height: 40vh;
+        width: 100%;
+        padding: 1.5rem;
+    }
+    
+    #choices-container {
+        height: auto;
+        width: 100%;
+        flex-direction: column;
+        padding: 1.5rem;
+    }
+    
+    .choice-btn {
+        width: 100%;
+        margin: 8px 0;
+        font-size: 1.1rem;
+    }
+    
+    #story-text p {
+        font-size: 1.2rem;
+        line-height: 1.5;
+        margin-bottom: 1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    #game-container {
+        grid-template-rows: 20vh auto auto;
+    }
+    
+    #scene-image {
+        height: 20vh;
+    }
+    
+    #story-text p {
+        font-size: 1.1rem;
+    }
+    
+    .menu-content h1 {
+        font-size: 1.5rem;
+    }
+    
+    .menu-content select,
+    .menu-btn {
+        width: 100%;
+        padding: 12px;
+    }
+}

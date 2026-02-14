@@ -1,6 +1,7 @@
 {
-    "title": "Alice-Test",
-    "llm_model": "gemini-3-pro-preview",
+    "book_id": "Wuthering_Heights___Emily_Bront_",
+    "title": "Wuthering Heights   Emily Bront ",
+    "llm_model": "gemini-3-flash-preview",
     "supported_llms": [
         "gemini-2.5-flash-lite",
         "gemini-2.5-flash",
@@ -9,19 +10,32 @@
         "gemini-3-pro-preview",
         "gemini-2.0-flash-exp"
     ],
+    "generation": {
+        "images_per_scene": 2,
+        "sounds_per_scene": 1,
+        "sound_length_seconds": 5,
+        "sound_loop": true
+    },
     "visual_settings": {
-        "master_style": "moody, magical, oil-painting, no faces",
+        "master_style": "moody, dark, 19th century oil-painting, no faces",
         "positive_prompt": "masterpiece, score_9, score_8_up, cinematic, 8k, extremely detailed",
         "negative_prompt": "blurry, deformed, low quality, bad anatomy, text, signature, nsfw, nudity, faces"
     },
+    "character_map": {
+        "Faust": "Mystical hooded man, (rear view:1.4)",
+        "Mephistopheles": "elegant devil in elegant medieval clothes, dark aura",
+        "Gretchen": "18 year old innocent beautiful girl, simple medival clothes, golden aura",
+        "Heathcliff": "small man, long wavy black hair, 40 years old, ugly, crooked",
+        "Cathrine": "40 years old, woman, victorian dress, long black hair, distant"
+    },
     "sd_settings": {
-        "sd_model": "Illustrious\\plantMilkModelSuite_walnut.safetensors [1704e50726]",
-        "width": 576,
-        "height": 704,
+        "sd_model": "SDXL\\ramthrustsNSFWPINK_alchemyMix169.safetensors [595d5eeedd]",
+        "width": 512,
+        "height": 832,
         "steps": 25,
-        "sampler_name": "Euler",
-        "scheduler": "Automatic",
+        "sampler_name": "DPM++ 2M SDE",
+        "scheduler": "Karras",
         "cfg_scale": 7.0
     },
-    "book_id": "Faust___Johann_Wolfgang_Von_Goethe"
+    "book_filename": "Wuthering_Heights___Emily_Bront_.txt"
 }

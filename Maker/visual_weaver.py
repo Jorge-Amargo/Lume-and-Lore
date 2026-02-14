@@ -19,7 +19,24 @@ class VisualWeaver:
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = json.load(f)
         
+        # Normalize SD model location: prefer top-level sd_model but fallback to sd_settings.sd_model
+        sd_settings = self.config.get("sd_settings", {})
+        print(f"📖 book_config.json loaded. sd_settings keys: {list(sd_settings.keys())}")
+        print(f"📖 book_config.json sd_settings.sd_model: {sd_settings.get('sd_model')}")
+        print(f"📖 book_config.json top-level sd_model: {self.config.get('sd_model')}")
+        
+        if not self.config.get("sd_model") and sd_settings.get("sd_model"):
+            self.config["sd_model"] = sd_settings.get("sd_model")
+            print(f"✅ Normalized: copied sd_settings.sd_model to top-level sd_model")
+        # Also keep a convenience attribute
+        self.sd_model = self.config.get("sd_model")
+        print(f"✅ VisualWeaver initialized with SD model: {self.sd_model}")
+
         self.base_url = api_url.rstrip('/')
+        # Defensive check: if someone passed a book_id by mistake (no scheme), fall back to localhost
+        if not self.base_url.startswith('http'):
+            print(f"⚠️ VisualWeaver received non-URL api_url '{api_url}'. Falling back to http://127.0.0.1:7860")
+            self.base_url = "http://127.0.0.1:7860"
         
         # FIX: Ensure the output directory is also absolute
         # This points to: .../Lume_and_Lore/data/output/[ID]/assets
@@ -27,7 +44,33 @@ class VisualWeaver:
         
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir, exist_ok=True)
-
+    
+    def check_connection(self):
+        """Checks if the SD WebUI is reachable. Returns (Success, Message)."""
+        try:
+            response = requests.get(f"{self.base_url}/sdapi/v1/options", timeout=3)
+            if response.status_code == 200:
+                return True, "Connected"
+            elif response.status_code == 404:
+                return False, "Server Running but API not found. Add '--api' to COMMANDLINE_ARGS."
+            else:
+                return False, f"Server Error (Status: {response.status_code})"
+        except requests.exceptions.ConnectionError:
+            return False, "Connection Refused. Is WebForge running?"
+        except Exception as e:
+            return False, f"Error: {e}"
+    
+    def get_sd_models(self):
+        """Fetches the list of available model checkpoints from SD WebUI."""
+        try:
+            response = requests.get(f"{self.base_url}/sdapi/v1/sd-models", timeout=3)
+            if response.status_code == 200:
+                # Return list of model titles (e.g. "v1-5-pruned.ckpt [e144158e]")
+                return [m['title'] for m in response.json()]
+        except Exception as e:
+            print(f"Warning: Could not fetch SD models: {e}")
+        return []
+        
     def _draw_progress_bar(self, current, total, status="Generating"):
         """Creates a smooth terminal progress bar."""
         length = 40
@@ -45,6 +88,12 @@ class VisualWeaver:
         :param callback: A function that accepts (current_step, total_steps) to update UI.
         """
         paths = []
+        # Ensure the desired SD model from config is active before starting
+        try:
+            self.ensure_correct_model()
+        except Exception as e:
+            print(f"⚠️ Warning: ensure_correct_model raised: {e}")
+
         print(f"\n🎨 Starting art production for: {base_filename}")
         
         # Initial terminal bar
@@ -70,18 +119,28 @@ class VisualWeaver:
         return paths
 
     def ensure_correct_model(self):
-        target_model = self.config.get("sd_model")
-        if not target_model: return
+        """Ensure the Web UI is using the SD model specified in book_config.json.
+        Supports model being defined either at top-level `sd_model` or under `sd_settings.sd_model`.
+        """
+        target_model = getattr(self, 'sd_model', None) or self.config.get('sd_model')
+        if not target_model:
+            print("ℹ️ No SD model configured in book_config.json; leaving Web UI model unchanged.")
+            return
 
         try:
             opt_res = requests.get(f"{self.base_url}/sdapi/v1/options", timeout=5)
             if opt_res.status_code == 200:
                 current_model = opt_res.json().get("sd_model_checkpoint")
+                print(f"🔍 Web UI currently has sd_model_checkpoint: {current_model}")
+                print(f"🔍 Target model from book_config.json: {target_model}")
                 if current_model != target_model:
                     print(f"🔄 Switching model to: {target_model}...")
                     requests.post(f"{self.base_url}/sdapi/v1/options", json={"sd_model_checkpoint": target_model})
                     # Give it a few seconds to load the heavy weights
-                    time.sleep(5) 
+                    time.sleep(5)
+                    print(f"✅ Model switch completed")
+                else:
+                    print(f"✅ SD model already set to: {target_model}")
         except Exception as e:
             print(f"⚠️ Could not check/switch model: {e}")
 
@@ -101,17 +160,20 @@ class VisualWeaver:
             "sampler_name": sampler,
             "scheduler": scheduler,
             "seed": random_seed,
-            "cfg_scale": 7,
+            "cfg_scale": self.config.get("sd_settings", {}).get("cfg_scale", 7.0),
             "override_settings": {
                 "sd_model_checkpoint": self.config.get("sd_model")
             }
         }
 
         save_path = os.path.join(self.output_dir, f"{filename}.png")
+        
+        print(f"📋 Payload will use sd_model_checkpoint: {self.config.get('sd_model')}")
 
         # FIX: The retry loop logic
         for attempt in range(retries):
             try:
+                print(f"Posting to {self.base_url}/sdapi/v1/txt2img with payload keys: {list(payload.keys())}")
                 response = requests.post(f"{self.base_url}/sdapi/v1/txt2img", json=payload, timeout=60)
                 response.raise_for_status()
                 r = response.json()

@@ -3,30 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lume & Lore: Adventure Player</title>
+    <title>Lume & Lore: Player</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://unpkg.com/inkjs@latest/dist/ink.unminified.js"></script>
+    <script src="ink.js"></script>
 </head>
 <body>
-    <div id="game-container">
+    <div id="main-menu" class="overlay">
+        <div class="menu-content">
+            <h1>🎬 Lume & Lore</h1>
+            <p>Select your adventure:</p>
+            <select id="project-selector">
+                <option value="" disabled selected>Loading adventures...</option>
+            </select>
+            <input type="file" id="save-file-input" style="display: none;" accept=".json" onchange="handleFileUpload(this)">
+            <div class="menu-buttons">
+                <button onclick="startGame(false)" class="menu-btn primary">🚀 New Game</button>
+                <button id="resume-btn" onclick="startGame(true)" class="menu-btn secondary">📂 Resume</button>
+                <button onclick="document.getElementById('save-file-input').click()" class="menu-btn secondary">📂 Load from File</button>
+                <button onclick="toggleGallery(true)" class="menu-btn tertiary">🖼️ Gallery</button>
+                <button onclick="toggleTypewriter()" class="menu-btn tertiary" id="typewriter-toggle">⌨️ Typewriter ON</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="gallery-overlay" class="overlay" style="display:none;">
+        <div class="gallery-content">
+            <button class="close-btn" onclick="toggleGallery(false)">✕ Close</button>
+            <h2>🎨 Encountered Art</h2>
+            <div class="gallery-tabs">
+                <button class="tab-btn active" onclick="switchTab('scenes')">Scenes</button>
+                <button class="tab-btn" onclick="switchTab('rewards')">Rewards</button>
+            </div>
+            <div id="gallery-grid" class="grid-container"></div>
+        </div>
+    </div>
+
+    <div id="game-container" style="display:none;">
         <div id="image-container">
-            <img id="scene-image" src="data/assets/placeholder.png" alt="Scene Image">
+            <img id="scene-image" src="../data/output/placeholder.png" alt="Scene Image">
+            <div id="reward-banner">✨ EXQUISITE DISCOVERY ✨</div>
+            <div style="position: absolute; top: 20px; right: 20px; display: flex; gap: 10px;">
+                <button id="save-game-btn" onclick="downloadSaveFile()" class="overlay-btn">💾 Save</button>
+                <button id="back-to-menu" onclick="location.reload()" class="overlay-btn">🏠 Menu</button>
+            </div>
         </div>
 
-    <div class="container">
-        <div class="image-frame">
-            <img id="story-image" src="" style="display:none; width:100%; max-width:800px; border-radius:10px;">
+        <div id="text-container">
+            <div id="story-text"></div>
         </div>
         
-        <div id="story" class="container">
-            </div>
-    </div>
-    <div id="text-container">
-            <div id="story-text"></div>
-            <div id="choices-container"></div>
-        </div>
-    </div>
-    
+        <div id="choices-container"></div> 
+    </div> 
     <script src="main.js"></script>
 </body>
 </html>

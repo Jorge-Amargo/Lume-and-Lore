@@ -16,8 +16,13 @@ data/assets/**/*
 # Local settings
 .vscode/
 .idea/
-
+.venv
+.pytest_cache
 gutenberg_index.db
 GUTINDEX.ALL.new
+inclecate.exe
 *.tar.bz2
 cache/
+data/output/
+data/cache/
+*.db
