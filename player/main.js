@@ -272,7 +272,14 @@ function toggleTypewriter() {
 
 function renderChoices() {
     choicesContainer.innerHTML = "";
-
+    if (story.currentChoices.length === 0 && !story.canContinue) {
+        const endBtn = document.createElement('button');
+        endBtn.className = 'choice-btn';
+        endBtn.innerText = "The End - Return to Menu";
+        endBtn.onclick = () => location.reload();
+        choicesContainer.appendChild(endBtn);
+        return;
+    }
     story.currentChoices.forEach(choice => {
         const button = document.createElement('button');
         button.innerText = choice.text;

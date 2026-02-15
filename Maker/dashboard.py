@@ -845,14 +845,13 @@ else:
                     c_txt = st.text_input("Choice Text", value=c.get('text', ''), key=f"c_txt_{i}")
                     c_out = st.text_area("Outcome Text", value=c.get('outcome_text', ''), height=68, key=f"c_out_{i}", 
                                          help="The immediate narrative result of picking this choice.")
-                    
                     # Conditional Extra Field: Reward Prompt
                     if c['type'] == 'exquisite':
                         st.markdown("---")
                         c_rew = st.text_area(
                             "💎 Reward Visual Prompt", 
                             value=c.get('reward_visual_prompt', vp), # Fallback to scene prompt if missing
-                            height=80, 
+                            height=68, 
                             key=f"c_rew_{i}",
                             help="Describe the reward image based on the outcome text above."
                         )
@@ -904,6 +903,27 @@ else:
                     st.stop() # Wait for user input
 
                 with st.spinner("💎 Painting Scene..."):
+                    # 1. Create the empty progress bar in the UI
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    # 2. Define the callback function
+                    def update_ui(percent, current, total):
+                        progress_bar.progress(percent)
+                        status_text.text(f"🎨 Painting... Image {current} of {total} ({percent}%)")
+                        
+                    # 3. Pass this function to the weaver
+                    # Note: We add 'callback=update_ui' to the arguments
+                    paths = weaver.generate_batch(
+                        prompt=prompt, 
+                        count=3, 
+                        base_filename=node_id,
+                        callback=update_ui 
+                    )
+                    
+                    # 4. Cleanup after done
+                    status_text.text("✅ Generation Complete!")
+                    progress_bar.empty()
                     cnt = current_config.get('generation', {}).get('images_per_scene', 4)
                     imgs = weaver.generate_batch(scene['visual_prompt'], base_id, count=cnt)
                     st.session_state[gen_key] = imgs

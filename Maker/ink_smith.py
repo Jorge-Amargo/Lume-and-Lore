@@ -67,7 +67,7 @@ class InkSmith:
         if audio_file:
             lines.append(f"# AUDIO: {audio_file}")
         
-        lines.append(self._format_choices(scene_id, scene_data.get('choices', []), next_slug))
+        lines.append(f"    * [Begin Adventure] -> {next_slug}")
         lines.append("\n")
         
         # KEY FIX: Overwrite file to clear previous runs (Fixes duplicate intro)
@@ -83,7 +83,11 @@ class InkSmith:
             lines.append(f"# AUDIO_PROMPT: {audio_prompt}")
         if audio_file:
             lines.append(f"# AUDIO: {audio_file}")
-        lines.append(self._format_choices(scene_id, choices, next_slug))
+        if not choices:
+            lines.append("-> END")
+        else:
+            lines.append(self._format_choices(scene_id, choices, next_slug))
+            
         lines.append("\n")
         self._append_to_file(lines)
 

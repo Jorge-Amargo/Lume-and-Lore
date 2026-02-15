@@ -16,17 +16,17 @@ def run_art_direction(weaver, prompt, base_name, config, sound_weaver=None, book
     """
     Generates assets but CHECKS if they exist first to prevent looping/overwriting.
     """
-    final_image_name = f"{base_name}_final"
-    final_image_path = os.path.join(weaver.output_dir, f"{final_image_name}.png")
+    image_name = base_name
+    image_path = os.path.join(weaver.output_dir, f"{image_name}.png")
     
     # --- 1. IMAGE HANDLING ---
     candidates = []
     selected_image = None
 
     # Check if final image already exists
-    if os.path.exists(final_image_path):
-        print(f"✅ Image exists: {final_image_name}")
-        selected_image = final_image_name
+    if os.path.exists(image_path):
+        print(f"✅ Image exists: {image_name}")
+        selected_image = image_name
     else:
         # Check if we have existing candidates on disk (from a previous interrupted run)
         existing_cands = [
@@ -61,12 +61,12 @@ def run_art_direction(weaver, prompt, base_name, config, sound_weaver=None, book
                     break
             
             # Finalize
-            shutil.move(candidates[idx], final_image_path)
-            selected_image = final_image_name
+            shutil.move(candidates[idx], image_path)
+            selected_image = image_name
             
             # Cleanup unused candidates
             for c in candidates:
-                if os.path.exists(c) and c != final_image_path:
+                if os.path.exists(c) and c != image_path:
                     os.remove(c)
 
     # --- 2. SOUND HANDLING ---
@@ -76,13 +76,13 @@ def run_art_direction(weaver, prompt, base_name, config, sound_weaver=None, book
     
     # Construct audio path
     audio_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'output', str(book_id), 'audio')
-    final_sound_name = f"{base_name}_final.mp3"
-    final_sound_path = os.path.join(audio_dir, final_sound_name)
+    sound_name = f"{base_name}.mp3"
+    sound_path = os.path.join(audio_dir, sound_name)
 
     if sounds_count and sound_weaver:
-        if os.path.exists(final_sound_path):
-            print(f"✅ Sound exists: {final_sound_name}")
-            selected_sound = final_sound_name
+        if os.path.exists(sound_path):
+            print(f"✅ Sound exists: {sound_name}")
+            selected_sound = sound_name
         else:
             # Generate or find candidates
             sound_prompt = audio_prompt or f"{prompt} — ambience, background texture, loopable"
@@ -112,8 +112,8 @@ def run_art_direction(weaver, prompt, base_name, config, sound_weaver=None, book
 
             if temp_path and os.path.exists(temp_path):
                 os.makedirs(audio_dir, exist_ok=True)
-                shutil.copy(temp_path, final_sound_path)
-                selected_sound = final_sound_name
+                shutil.copy(temp_path, sound_path)
+                selected_sound = sound_name
 
     return {'image': selected_image, 'sound': selected_sound}
 
@@ -191,7 +191,18 @@ def run_director():
     while main_scene:
         # FIX: Define current_id immediately at the start of the loop
         current_id = main_scene.get('node_id', 'unknown_node') 
-        
+        if main_scene.get('ending'):
+            print("\n" + "✧"*60)
+            print("🎬 THE ENDING")
+            print("-" * 60)
+            print(main_scene['ending'])
+            print("✧"*60 + "\n")
+            
+            assets = run_art_direction(weaver, main_scene['visual_prompt'], current_id, config, sound_weaver=sw, book_id=book_id, audio_prompt=main_scene.get('audio_prompt'))
+            smith.write_main_node_start(current_id, main_scene['ending'], assets['image'], [], "END", audio_file=assets.get('sound'))
+            print("✅ Story recorded successfully. Narrative complete.")
+            break
+            
         print("\n" + "="*60)
         print(f"📖 NARRATIVE BEAT: {current_id}")
         print("-" * 60)
@@ -216,6 +227,7 @@ def run_director():
             outcome = architect.generate_transition(current_id, choice)
             
             if c_type == 'exquisite':
+                reward_base = f"{current_id}_result_{i+1}_reward"
                 rew_assets = run_art_direction(weaver, outcome['visual_prompt'], f"{current_id}_REW", config, sound_weaver=sw, book_id=book_id, audio_prompt=outcome.get('audio_prompt'))
                 # Pass image filename to the reward node writer (function should accept this)
                 reward_node_id = smith.write_reward_node(outcome, rew_assets['image'], current_id)

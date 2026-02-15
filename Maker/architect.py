@@ -107,7 +107,9 @@ class AutonomousArchitect:
                 {"text": "...", "type": "bad", "outcome_text": "..."}
             ]
         }
-        NOTE: The 'audio_prompt' should be concise (a few words) and focused on ambience or textures, suitable to feed into a TTS/sound synthesis API.
+        NOTES: 
+        1. The 'audio_prompt' should be concise (a few words) and focused on ambience or textures, suitable to feed into a TTS/sound synthesis API.
+        2. The 'visual prompt' should describe the scene in very simple  terms, seperated by commas, useful as a prompt for SD1.0 image generators
         """
         try:
             resp = self.chat.send_message(prompt)
@@ -141,9 +143,12 @@ class AutonomousArchitect:
         Describe the conclusion of the prevoious scene and the next major scene where the protagonist faces a decision. 
         Descibe the scene vividly and with the same tone and style as the book.
         
+        CRITICAL: If the story has reached its natural conclusion based on the book, provide a final paragraph named 'ending' and leave 'choices' as an empty list [].
+
         REQUIREMENTS:
-        1. Provide exactly 3 choices (Golden, Exquisite, Bad).
-        2. 'scene_id' must be snake_case.
+        1. If NOT the end: Provide exactly 3 choices (Golden, Exquisite, Bad).
+        2. If IT IS the end: Set "ending" to a vivid final paragraph.
+        3. 'scene_id' must be snake_case.
         3. UNIFIED STRUCTURE: Every choice MUST have an 'outcome_text' describing what happens next.
         4. REWARD LOGIC: The 'exquisite' choice MUST include a 'reward_visual_prompt' that visualizes its specific 'outcome_text'.
 
@@ -151,6 +156,7 @@ class AutonomousArchitect:
         {{
             "scene_id": "...",
             "scene_text": "...",
+            "ending": "Optional final paragraph if the story ends here",
             "visual_prompt": "A concise prompt for SD1.5 image-generation (buildings, interior, landscape, colors)",
             "audio_prompt": "A concise prompt for SFX generation (mood, dominant sounds, loopable)",
             "choices": [

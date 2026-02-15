@@ -112,9 +112,11 @@ class VisualWeaver:
             # 1. Update Terminal Bar
             self._draw_progress_bar(i + 1, count)
             
-            # 2. 🛠️ FIX: Update Streamlit UI Bar (if callback provided)
+            # 2. Update Streamlit UI (The new link)
             if callback:
-                callback(i + 1, count)
+                # We calculate percentage (0 to 100) and current step
+                percent = int((i + 1) / count * 100)
+                callback(percent, i + 1, count)
             
         return paths
 

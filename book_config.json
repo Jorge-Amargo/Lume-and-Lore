@@ -1,6 +1,6 @@
 {
-    "book_id": "Wuthering_Heights___Emily_Bront_",
-    "title": "Wuthering Heights   Emily Bronte",
+    "book_id": "Fall_of_the_House_of_Usher___Edgar_Allan_Poe",
+    "title": "Fall of the House of Usher   Edgar Allan Poe",
     "llm_model": "gemini-3-flash-preview",
     "supported_llms": [
         "gemini-2.5-flash-lite",
@@ -26,16 +26,17 @@
         "Mephistopheles": "elegant devil in elegant medieval clothes, dark aura",
         "Gretchen": "18 year old innocent beautiful girl, simple medival clothes, golden aura",
         "Heathcliff": "small man, long wavy black hair, 40 years old, ugly, crooked",
-        "Cathrine": "40 years old, woman, victorian dress, long black hair, distant"
+        "Cathrine": "40 years old, woman, victorian dress, long black hair, distant",
+        "Dorian Gray": "elegant man, victorian dress"
     },
     "sd_settings": {
-        "sd_model": "SDXL\\plantMilkModelSuite_walnut.s_IL.safetensors [1704e50726]",
+        "sd_model": "SDXL\\epicrealismXL_vxviiCrystalclear.safetensors",
         "width": 512,
         "height": 832,
         "steps": 25,
         "sampler_name": "DPM++ 2M SDE",
         "scheduler": "Karras",
-        "cfg_scale": 7.0
+        "cfg_scale": 5.0
     },
-    "book_filename": "Wuthering_Heights___Emily_Bront_.txt"
+    "book_filename": "Fall_of_the_House_of_Usher___Edgar_Allan_Poe.txt"
 }
