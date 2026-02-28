@@ -1,5 +1,5 @@
-google-genai>=0.3.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-streamlit>=1.28.0
-pydub>=0.25.1
+streamlit
+python-dotenv
+requests
+google-genai
+watchdog

@@ -1,5 +1,6 @@
 import os
 import time
+import json
 
 class InkSmith:
     def __init__(self, book_id):
@@ -7,14 +8,23 @@ class InkSmith:
         os.makedirs(self.base_dir, exist_ok=True)
         self.ink_path = os.path.join(self.base_dir, "adventure.ink")
         
+        from utils import DashboardUtils
+        self.config = DashboardUtils.load_config()
+        self.images_per_scene = self.config.get('generation', {}).get('images_per_scene', 4)
+        
         # Initialize file (Keep last_node for Resume logic, remove health/morale)
         if not os.path.exists(self.ink_path):
-            header = [
-                "// Lume & Lore Adventure Script",
-                "VAR last_node = \"intro\"", 
-                "-> intro\n\n"
-            ]
-            self._write_to_file(header)
+            traits_cfg = self.config.get("traits", {})
+            header_lines = ["// Lume & Lore Adventure Script"]
+            
+            for key in ["trait_1", "trait_2", "trait_3"]:
+                trait = traits_cfg.get(key, {})
+                if trait.get("label"): # Nur deklarieren, wenn ein Name existiert
+                    header_lines.append(f"VAR {key} = {trait.get('initial', 50)}  // {trait['label']}")
+            
+            header_lines.append("VAR last_node = \"intro\"")
+            header_lines.append("-> intro\n\n")
+            self._write_to_file(header_lines)
     
     @property
     def output_file(self):
@@ -26,6 +36,41 @@ class InkSmith:
         """Directory for storing generated images and assets."""
         return os.path.join(self.base_dir, "assets")
 
+    def get_last_node(self):
+        """Findet den letzten echten Szenen-Knoten in der Datei."""
+        if not os.path.exists(self.ink_path):
+            return "intro"
+        
+        last_knot = "intro"
+        with open(self.ink_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("== ") and "==" in line[3:]:
+                    knot_name = line.split("==")[1].strip()
+                    # Filter: Ignoriere Ergebnisse und Platzhalter
+                    if "_next" not in knot_name.lower() and "_result" not in knot_name.lower():
+                        last_knot = knot_name
+        return last_knot
+
+    def count_existing_scenes(self):
+        """Zählt nur die echten Story-Szenen (ohne Results/Placeholders)."""
+        if not os.path.exists(self.ink_path):
+            return 0
+        
+        count = 0
+        with open(self.ink_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("== ") and "==" in line[3:]:
+                    knot_name = line.split("==")[1].strip()
+                    if "_next" not in knot_name.lower() and "_result" not in knot_name.lower():
+                        count += 1
+        return count
+
+    def get_full_script(self):
+        """Returns the entire script content for LLM context."""
+        if not os.path.exists(self.ink_path): return ""
+        with open(self.ink_path, "r", encoding="utf-8") as f:
+            return f.read()
+        
     def patch_placeholder_links(self, placeholder_id, real_new_id):
         """
         Reads the Ink file, finds all references to the placeholder (e.g. 'garden_next'),
@@ -58,18 +103,24 @@ class InkSmith:
 
         lines = [
             "== intro ==",
-            f"~ last_node = \"intro\"", # Required for dashboard.py get_resume_state
             f"{scene_data.get('scene_text')}",
-            f"# IMAGE: intro_main.png",
         ]
-        if audio_prompt:
-            lines.append(f"# AUDIO_PROMPT: {audio_prompt}")
+        # Only include an image tag if images are enabled in the config
+        if getattr(self, 'images_per_scene', 1) > 0:
+            lines.append(f"# IMAGE: intro_main.png")
         if audio_file:
             lines.append(f"# AUDIO: {audio_file}")
-        
-        lines.append(f"    * [Begin Adventure] -> {next_slug}")
+
+        # Render generated choices for the intro the same way other scenes do.
+        # If the architect hasn't produced choices, divert to the next slug.
+        choices = scene_data.get('choices', [])
+        if choices:
+            lines.append(self._format_choices('intro', choices, next_slug))
+        else:
+            lines.append(f"-> {next_slug}")
+
         lines.append("\n")
-        
+
         # KEY FIX: Overwrite file to clear previous runs (Fixes duplicate intro)
         self._write_to_file(header + lines)
 
@@ -77,10 +128,10 @@ class InkSmith:
         lines = [
             f"== {scene_id} ==",
             f"{text}",
-            f"# IMAGE: {image_file}.png",
         ]
-        if audio_prompt:
-            lines.append(f"# AUDIO_PROMPT: {audio_prompt}")
+        # Only include an image tag if images are enabled in the config
+        if getattr(self, 'images_per_scene', 1) > 0 and image_file:
+            lines.append(f"# IMAGE: {image_file}.png")
         if audio_file:
             lines.append(f"# AUDIO: {audio_file}")
         if not choices:
@@ -107,12 +158,24 @@ class InkSmith:
             lines.append(f"{outcome}")
 
             if choice.get('type') == 'exquisite':
-                lines.append(f"# IMAGE: {choice_slug}_reward.png")
+                # Use a canonical scene-level reward image name (no per-result suffix)
+                if getattr(self, 'images_per_scene', 1) > 0:
+                    lines.append(f"# IMAGE: {parent_id}_reward.png")
+                # Mark successful/exquisite outcomes as an Ink tag (not shown to player)
+                lines.append("# good")
             elif choice.get('type') == 'bad':
-                lines.append("\n<i>Fate frowns. You must try again.</i>")
+                # Use an Ink tag for negative outcomes (hidden from the player)
+                lines.append("# bad")
                 lines.append(f"-> {parent_id}\n")
                 continue # Bad path loops back
-                
+            
+            trait_changes = choice.get('trait_changes', {})
+            for t_key, delta in trait_changes.items():
+                if delta != 0:
+                    # Format: ~ trait_1 = trait_1 + 10
+                    operator = "+" if delta > 0 else "-"
+                    abs_delta = abs(delta)
+                    lines.append(f"~ {t_key} = {t_key} {operator} {abs_delta}")    
             lines.append(f"-> {next_main_id}\n")
             
         self._append_to_file(lines)

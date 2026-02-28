@@ -1,42 +1,42 @@
 {
-    "book_id": "Fall_of_the_House_of_Usher___Edgar_Allan_Poe",
-    "title": "Fall of the House of Usher   Edgar Allan Poe",
-    "llm_model": "gemini-3-flash-preview",
-    "supported_llms": [
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-3-flash-preview",
-        "gemini-3-pro-preview",
-        "gemini-2.0-flash-exp"
-    ],
+    "book_id": "Der_Zauberberg__Subtitle__Zweiter_Band",
+    "llm_model": "gemini-3-pro-preview",
+    "title": "Der Zauberberg  Subtitle  Zweiter Band",
+    "book_filename": "Der_Zauberberg__Subtitle__Zweiter_Band.txt",
     "generation": {
-        "images_per_scene": 3,
-        "sounds_per_scene": 1,
+        "target_scene_count": 8,
+        "images_per_scene": 2,
+        "sounds_per_scene": 0,
         "sound_length_seconds": 5,
-        "sound_loop": true
+        "sound_loop": false
     },
     "visual_settings": {
-        "master_style": "moody, dark, 19th century oil-painting, no faces",
-        "positive_prompt": "masterpiece, score_9, score_8_up, cinematic, 8k, extremely detailed",
-        "negative_prompt": "blurry, deformed, low quality, bad anatomy, text, signature, nsfw, nudity, faces"
+        "master_style": "pale colors, impressionist painting, faceless, ill",
+        "positive_prompt": "masterpiece, score_9, score_8, score_7",
+        "negative_prompt": "blurry, deformations, bad"
     },
-    "character_map": {
-        "Faust": "Mystical hooded man, (rear view:1.4)",
-        "Mephistopheles": "elegant devil in elegant medieval clothes, dark aura",
-        "Gretchen": "18 year old innocent beautiful girl, simple medival clothes, golden aura",
-        "Heathcliff": "small man, long wavy black hair, 40 years old, ugly, crooked",
-        "Cathrine": "40 years old, woman, victorian dress, long black hair, distant",
-        "Dorian Gray": "elegant man, victorian dress"
-    },
+    "character_map": {},
     "sd_settings": {
-        "sd_model": "SDXL\\epicrealismXL_vxviiCrystalclear.safetensors",
+        "sd_model": "Illustrious\\hassakuXLIllustrious_v33.safetensors [b348cc60f2]",
         "width": 512,
-        "height": 832,
+        "height": 724,
         "steps": 25,
+        "cfg_scale": 5.0,
         "sampler_name": "DPM++ 2M SDE",
-        "scheduler": "Karras",
-        "cfg_scale": 5.0
+        "scheduler": "Karras"
     },
-    "book_filename": "Fall_of_the_House_of_Usher___Edgar_Allan_Poe.txt"
+    "traits": {
+        "trait_1": {
+            "label": "Gesundheit",
+            "initial": 50
+        },
+        "trait_2": {
+            "label": "Geisteszustand",
+            "initial": 50
+        },
+        "trait_3": {
+            "label": "",
+            "initial": 0
+        }
+    }
 }

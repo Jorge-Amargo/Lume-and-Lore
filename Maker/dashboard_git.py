@@ -218,13 +218,23 @@ ink_file = os.path.join(output_path, "adventure.ink")
 
 # 2. Resume Helper
 def get_resume_state(file_path):
+    """Return the last known node.
+    Prefer the runtime assignment (~ last_node = "...") when present; otherwise fall back
+    to the file-level VAR declaration (VAR last_node = "...").
+    """
     if not os.path.exists(file_path): return None
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
-        match = re.findall(r'~ last_node = "(.*?)"', content)
-        return match[-1] if match else None
-    except: return None
+        # Prefer runtime assignment if it exists
+        runtime = re.findall(r'~\s*last_node\s*=\s*"(.*?)"', content)
+        if runtime:
+            return runtime[-1]
+        # Fallback to VAR declaration in header
+        var_match = re.findall(r'VAR\s+last_node\s*=\s*"(.*?)"', content)
+        return var_match[-1] if var_match else None
+    except:
+        return None
 
 # 3. Render Title (ONLY ONCE)
 st.title(f"🎬 Director Mode: {title}")
@@ -447,7 +457,8 @@ else:
                     else:
                         # === PHASE 2: REWARD ===
                         idx = st.session_state.ex_choice_idx
-                        target = os.path.join(weaver.output_dir, f"{base_id}_result_{idx+1}_reward.png")
+                        # Move chosen reward to the canonical scene-level reward filename
+                        target = os.path.join(weaver.output_dir, f"{base_id}_reward.png")
                         shutil.move(img_path, target)
                         
                         # 🛠️ FIX: Cleanup Unused Reward Images

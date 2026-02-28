@@ -315,9 +315,10 @@ function renderChoices() {
                 const tags = story.currentTags || [];
 
                 // --- FIX 3: Aggressive Text Filter ---
-                // Ignores case to ensure "Fate Frowns" is always removed
-                if (text.toLowerCase().includes("fate frowns")) {
-                    continue; 
+                // Ignore system/marker lines like "Fate frowns" and our outcome markers
+                const _lower = text.toLowerCase();
+                if (_lower.includes("fate frowns") || _lower.includes("bad") || _lower.includes("good")) {
+                    continue;
                 }
 
                 // --- FIX 2: Detect Scene Transition ---

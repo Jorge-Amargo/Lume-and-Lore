@@ -1,6 +1,5 @@
 import os
 import io
-import json
 import time
 import hashlib
 import base64
@@ -91,12 +90,7 @@ def _ensure_audio_dir(project_id: str) -> str:
     return audio_dir
 
 
-def _write_metadata(audio_path: str, meta: Dict):
-    meta_path = audio_path + '.meta.json'
-    with open(meta_path, 'w', encoding='utf-8') as f:
-        json.dump(meta, f, indent=2)
-
-
+# Metadata persistence to disk was removed; metadata is returned in-memory by generate_candidates.
 def _write_silence_mp3(file_path: str, duration_seconds: int = 5, sample_rate: int = 22050):
     """Write a silent MP3 file as a fallback placeholder. Uses pydub if available, otherwise falls back to ffmpeg-based creation."""
     desired_ms = int(duration_seconds * 1000)
@@ -237,8 +231,15 @@ class SoundWeaver:
                 else:
                     meta['processing_notes'] = ['Post-processing skipped by configuration.']
 
-                # Save metadata
-                _write_metadata(file_path, meta)
+                # Do NOT persist a .meta.json on disk — keep metadata in-memory only for the caller.
+                # Remove any pre-existing .meta.json for this audio file.
+                meta_path = file_path + '.meta.json'
+                if os.path.exists(meta_path):
+                    try:
+                        os.remove(meta_path)
+                    except Exception:
+                        pass
+
                 rel_path = os.path.relpath(file_path, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
                 out.append({'file': rel_path.replace('\\', '/'), 'meta': meta})
 
@@ -248,7 +249,15 @@ class SoundWeaver:
                     _write_silence_mp3(file_path, int(length_seconds))
                     meta['placeholder'] = True
                     meta['error'] = str(e)
-                    _write_metadata(file_path, meta)
+
+                    # Do NOT persist a .meta.json on disk — keep metadata in-memory only for the caller.
+                    meta_path = file_path + '.meta.json'
+                    if os.path.exists(meta_path):
+                        try:
+                            os.remove(meta_path)
+                        except Exception:
+                            pass
+
                     rel_path = os.path.relpath(file_path, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
                     out.append({'file': rel_path.replace('\\', '/'), 'meta': meta})
                 except Exception:

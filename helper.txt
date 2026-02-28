@@ -1,1 +1,11 @@
 streamlit run Maker/dashboard.py
+
+git status
+git add .
+
+git commit -m "Version name"
+git push
+
+
+git rm -f .git/index.lock
+git rm abc.py

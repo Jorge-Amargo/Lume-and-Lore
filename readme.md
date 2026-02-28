@@ -1,86 +1,65 @@
-# 🕯️ Lume & Lore: The AI Director Engine
+# 🕯️ Lume & Lore
 
-> **Vision:** To transform the silent pages of classic literature into living, breathing, branching interactive adventures using modern AI orchestration.
+**Lume & Lore** is an AI-driven interactive storytelling engine that combines the narrative power of ink script with the generative capabilities of Large Language Models (LLMs) and Stable Diffusion. It allows creators to build immersive, branching narratives with dynamically generated visuals and audio.
 
-## 🎭 The Strategy
-Lume & Lore is an "AI Director" that bridges the gap between Large Language Models (LLMs) and Game Engines. Instead of just generating text, it acts as a production pipeline that:
-1. **Architects:** Analyzes source text (e.g., *Alice in Wonderland*) to create logical narrative beats.
-2. **Weaves:** Directs Stable Diffusion to generate high-fidelity, consistent visual assets for every scene.
-3. **Smiths:** Translates the AI's creativity into valid **Ink** (inklestudios) code—a professional industry standard for narrative games.
+## 🌟 Features
 
-## 🏗️ The Current Blueprint
+* **AI-Assisted Writing**: Uses Google Gemini to help draft and expand ink scripts.
+* **Visual Weaver**: Generates scene illustrations and character portraits on the fly.
+* **Audio Orchestration**: Adds ambient soundscapes and effects to enhance immersion.
+* **Interactive Player**: A web-based player to experience the created stories.
+* **RPG Trait System**: Define up to 3 custom character traits (e.g., Magic, Strength, Virtue) that are tracked via Ink variables and influenced by player choices.
+* **Smart Resume**: Intelligent state synchronization that recognizes the last story beat and maintains the correct scene counter even after restarts.
+* **Compact Director Dashboard**: A streamlined UI optimized for horizontal space, allowing side-by-side editing of story text and choice outcomes.
+* **Interactive Player**: A web-based player to experience the created stories.
 
+## 🛠️ Prerequisites
 
+* Python 3.10+
+* A Google Cloud Project with the Gemini API enabled.
+* (Optional) A local Stable Diffusion WebUI instance for visual generation.
 
-### 1. The Branch-First Crawler
-The engine ensures a 100% playable experience by resolving transitions *before* the story proceeds. For every beat, the engine generates:
-* **The Golden Path:** The canonical story progression.
-* **The Exquisite Path:** A hidden reward/side-track with variable changes (e.g., +Corruption, -Vitality).
-* **The Bad Path:** A terminal failure state that loops back to the chapter start.
+## 📦 Installation
 
-### 2. State-Persistence & Memory
-To combat LLM "amnesia," the engine uses the current `.ink` script as a persistent memory bank. On restart, the system injects the existing game state back into Gemini's context, ensuring narrative continuity.
-
-### 3. Visual Continuity
-Using SDXL with dynamic seeds and strict directorial prompting, the engine prevents generic "static" images, forcing the AI to describe character actions and environments relative to the prose.
-
-
-
-## 🚀 Features
-* **Director Dashboard:** A visual web interface (Streamlit) to control every aspect of generation.
-* **Integrated Library:** Search and download books directly from Project Gutenberg's catalog of 70,000+ titles.
-* **Visual Weaver:** Automatic prompt engineering and image generation via WebUI Forge (SDXL).
-* **Branch-First Storytelling:** Generates "Golden Paths" (main plot) and "Exquisite Paths" (rewarding side-quests) automatically.
-* **Ink Export:** Produces ready-to-compile `.ink` files for game development.
-
-## 🛠️ Installation
-
-1.  **Clone the repository:**
+1.  **Clone the repository**:
     ```bash
-    git clone [https://github.com/Jorge-Amargo/Lume-and-Lore.git](https://github.com/Jorge-Amargo/Lume-and-Lore.git)
-    cd Lume-and-Lore
+    git clone [https://github.com/your-username/lume-and-lore.git](https://github.com/your-username/lume-and-lore.git)
+    cd lume-and-lore
     ```
 
-2.  **Install Dependencies:**
+2.  **Install dependencies**:
     ```bash
     pip install -r requirements.txt
     ```
 
-3.  **Setup Environment:**
-    Create a `.env` file in the root directory:
+3.  **Configure Environment**:
+    Create a `.env` file in the root directory and add your API keys:
     ```env
-    GEMINI_API_KEY=your_google_api_key_here
+    GEMINI_API_KEY=your_api_key_here
     ```
 
-4.  **Build the Library Index (One-time setup):**
-    Ensure `GUTINDEX.ALL.new` is in the root folder, then run:
-    ```bash
-    python build_library_index.py
-    ```
+## 🚀 Usage
 
-## 🎮 Usage
+### Running the Maker Dashboard
+To start the creative dashboard for building your story:
+```bash
+run maker.bat
+# Or manually: streamlit run Maker/dashboard.py
+Playing the Game
+To launch the web player:
 
-1.  **Start the Stable Diffusion Server:**
-    Launch your WebUI Forge with the API flag:
-    ```bash
-    ./webui-user.bat --api
-    ```
+Bash
+run player.bat
+# Or manually: python -m http.server -d player 8000
+Then open http://localhost:8000 in your browser.
 
-2.  **Launch the Director Dashboard:**
-    ```bash
-    streamlit run Maker/dashboard.py
-    ```
+📂 Project Structure
+Maker/: Core Python logic for the story generation engine.
+architect.py: Manages the LLM interaction and handles the narrative flow.
+ink_smith.py: Translates AI drafts into valid Ink script syntax.
+visual_weaver.py: Handles image generation.
+sound_weaver.py: Handles audio generation.
+dashboard.py: The Streamlit UI.
 
-3.  **Create:**
-    * Go to the **Library** tab to select or download a book.
-    * Go to **Config** to choose your AI Model and Art Style.
-    * Click **Initialize Engine** and start directing your story!
-
-## 📂 Project Structure
-* `Maker/`: Core Python logic (Architect, Weaver, Smith, Dashboard).
-* `data/books/`: Raw text files from Gutenberg.
-* `data/output/`: Generated assets and Ink scripts.
-* `web/`: HTML/JS templates for playing the generated game.
-
-## 📝 License
-MIT
+player/: HTML/JS web player for the game.
+book_config.json: Configuration for the current story.

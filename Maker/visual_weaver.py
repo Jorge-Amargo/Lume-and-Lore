@@ -5,19 +5,12 @@ import json
 import time
 import sys # Added for real-time terminal clearing
 import random
+from session_manager import initialize_session_state, BOOKS_DIR, current_dir, CONFIG_PATH, DEFAULT_LLMS
 
 class VisualWeaver:
     def __init__(self, api_url="http://127.0.0.1:7860"):
-        # FIX: Use absolute paths so Streamlit can find the file
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.join(current_dir, "..", "book_config.json")
-        
-        # Verify it exists before trying to open
-        if not os.path.exists(config_path):
-             raise FileNotFoundError(f"VisualWeaver could not find config at: {config_path}")
-
-        with open(config_path, "r", encoding="utf-8") as f:
-            self.config = json.load(f)
+        from utils import DashboardUtils
+        self.config = DashboardUtils.load_config()
         
         # Normalize SD model location: prefer top-level sd_model but fallback to sd_settings.sd_model
         sd_settings = self.config.get("sd_settings", {})
@@ -73,6 +66,12 @@ class VisualWeaver:
         
     def _draw_progress_bar(self, current, total, status="Generating"):
         """Creates a smooth terminal progress bar."""
+        # Defensive: avoid division by zero when total is zero or negative
+        if total <= 0:
+            sys.stdout.write(f'\r{status} |{'-'*40}| 0% (0/0)')
+            sys.stdout.flush()
+            return
+
         length = 40
         filled_length = int(length * current // total)
         bar = '█' * filled_length + '-' * (length - filled_length)
@@ -85,8 +84,13 @@ class VisualWeaver:
     def generate_batch(self, prompt, base_filename, count=4, callback=None):
         """
         Generates 'count' images.
-        :param callback: A function that accepts (current_step, total_steps) to update UI.
+        :param callback: A function that accepts (percent, current_step, total_steps) to update UI.
         """
+        # Defensive: if caller requests zero images, return early with no work
+        if count <= 0:
+            print(f"ℹ️ generate_batch called with count={count}; nothing to generate.")
+            return []
+
         paths = []
         # Ensure the desired SD model from config is active before starting
         try:
@@ -99,8 +103,8 @@ class VisualWeaver:
         # Initial terminal bar
         self._draw_progress_bar(0, count)
         
-        # Initial UI update (if connected)
-        if callback: callback(0, count)
+        # Initial UI update (if connected) — send percent, current, total
+        if callback: callback(0, 0, count)
         
         for i in range(count):
             file_name = f"{base_filename}_{i}"
@@ -190,7 +194,7 @@ class VisualWeaver:
             except Exception as e:
                 print(f"⚠️ Attempt {attempt+1} failed: {e}")
                 if attempt < retries - 1:
-                    time.sleep(2) # Brief pause before trying again
+                    time.sleep(2) # Wait before retrying
                 else:
-                    print("❌ All retries failed for image generation.")
+                    raise e 
                     return None
