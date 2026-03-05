@@ -71,23 +71,27 @@ class DashboardUtils:
     @staticmethod
     def initialize_ink_file(book_id, character):
         """Erstellt das .ink-File mit globalen Variablen für den Protagonisten."""
-        output_dir = os.path.join(current_dir, "..", "data", "output", book_id)
+        output_dir = st.session_state.get("active_project_path", os.path.join(current_dir, "..", "data", "output", book_id))
+        # OVERWRITE LOGIC: Wipe existing folder if it exists for this combination
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
         os.makedirs(output_dir, exist_ok=True)
         ink_path = os.path.join(output_dir, "adventure.ink")
         current_lang = st.session_state.get("lib_lang", "English")
         header = (f'VAR protagonist_name = "{character.get("name", "Unknown")}"\n'
-                  f'VAR protagonist_bio = "{character.get("description", "")}"\n'
-                  f'VAR current_scene = 0\n') 
+              f'VAR protagonist_bio = "{character.get("description", "")}"\n'
+              f'VAR last_node = "intro"\n')
         # 3. Add Traits from Config
         config = DashboardUtils.load_config()
         traits = config.get("traits", {})
         for t_key, t_data in traits.items():
             label = t_data.get("label", "").strip()
             if label:
+                # Use label (lowercase, no spaces) as variable name
+                var_name = re.sub(r'\W+', '_', label.lower())
                 initial_val = t_data.get("initial", 50)
-                # Format: VAR trait_1 = 50 // Health
-                header += f'VAR {t_key} = {initial_val} // {label}\n'
-        header += '\n-> start_node\n\n=== start_node ===\nThe adventure begins...\n-> END\n'
+                header += f'VAR {var_name} = {initial_val} // {label}\n'
+        header += '\n-> start_node\n\n=== start_node ===\nThe adventure begins...\n'
         with open(ink_path, 'w', encoding='utf-8') as f: 
             f.write(header)
         print(f"✅ Created .ink header for {book_id} in {current_lang}")
@@ -139,9 +143,13 @@ class DashboardUtils:
                     # We check for the compiled json file
                     json_path = os.path.join(folder_path, "adventure.json")
                     if os.path.exists(json_path):
-                        lang_match = re.search(r'VAR\s+language\s*=\s*"([^"]+)"', content)
-                        if lang_match:
-                            lang = lang_match.group(1)
+                        # Read content only if ink_path exists
+                        if os.path.exists(ink_path):
+                            with open(ink_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                            lang_match = re.search(r'VAR\s+language\s*=\s*"([^"]+)"', content)
+                            if lang_match:
+                                lang = lang_match.group(1)
                     title = folder.replace("_", " ").title()
                     projects.append({"id": folder, "title": title, "language": lang})
                         
@@ -234,6 +242,15 @@ class DashboardUtils:
                 audio_prompt=scene.get('audio_prompt')
             )
 
+        # --- NEW: keep resume marker up to date ---
+        # append a runtime assignment so `get_resume_state` doesn’t
+        # fall back to the stale VAR at the top of the file.
+        try:
+            with open(smith.ink_path, "a", encoding="utf-8") as f:
+                f.write(f'\n~ last_node = "{current_real_id}"\n')
+        except Exception:
+            pass
+
         # 3. Write Outcomes
         smith.write_choice_outcomes(base_id, scene['choices'], next_node_id)
         
@@ -264,7 +281,7 @@ class DashboardUtils:
         st.session_state.pop(f'awaiting_sound_{base_id}', None)
         st.session_state.pop(f'reward_selected_{base_id}', None)
         st.session_state.pop(f'generated_sfx_{base_id}', None)
-        st.rerun()
+        # st.rerun() removed to allow further processing after finalize_ink_node
 
     @staticmethod
     def load_config():
@@ -301,7 +318,7 @@ class DashboardUtils:
     @staticmethod
     def search_gutenberg_native(query, search_type="title", language=""):
         # FIX: Absolute path to database
-        db_path = os.path.join(current_dir, "..", DB_NAME)
+        db_path = os.path.join(current_dir, "..", "data", DB_NAME)
         if not os.path.exists(db_path): 
             st.error(f"⚠️ Database not found at {db_path}!")
             return []

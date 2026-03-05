@@ -1,42 +1,42 @@
 {
-    "book_id": "Der_Zauberberg__Subtitle__Zweiter_Band",
-    "llm_model": "gemini-3-pro-preview",
-    "title": "Der Zauberberg  Subtitle  Zweiter Band",
-    "book_filename": "Der_Zauberberg__Subtitle__Zweiter_Band.txt",
+    "book_id": "Alice_s_Adventures_in_Wonderland___Lewis_Carroll",
+    "llm_model": "gemini-3.1-flash-lite-preview",
+    "title": "Alice s Adventures in Wonderland   Lewis Carroll",
+    "book_filename": "Alice_s_Adventures_in_Wonderland___Lewis_Carroll.txt",
     "generation": {
-        "target_scene_count": 8,
-        "images_per_scene": 2,
+        "target_scene_count": 6,
+        "images_per_scene": 1,
         "sounds_per_scene": 0,
         "sound_length_seconds": 5,
         "sound_loop": false
     },
     "visual_settings": {
-        "master_style": "pale colors, impressionist painting, faceless, ill",
-        "positive_prompt": "masterpiece, score_9, score_8, score_7",
-        "negative_prompt": "blurry, deformations, bad"
+        "master_style": "vivid colors, childrens book, vibrant, cartoon",
+        "positive_prompt": " Smooth_Quality, masterpiece, score_9, score_8, score_7",
+        "negative_prompt": "blurry, deformations, bad,  Smooth_Negative-neg"
     },
     "character_map": {},
     "sd_settings": {
-        "sd_model": "Illustrious\\hassakuXLIllustrious_v33.safetensors [b348cc60f2]",
+        "sd_model": "plantMilkModelSuite_walnut.safetensors",
         "width": 512,
         "height": 724,
         "steps": 25,
         "cfg_scale": 5.0,
-        "sampler_name": "DPM++ 2M SDE",
-        "scheduler": "Karras"
+        "sampler_name": "Euler a",
+        "scheduler": "Automatic"
     },
     "traits": {
         "trait_1": {
-            "label": "Gesundheit",
+            "label": "Sanity",
             "initial": 50
         },
         "trait_2": {
-            "label": "Geisteszustand",
+            "label": "Health",
             "initial": 50
         },
         "trait_3": {
-            "label": "",
-            "initial": 0
+            "label": "Luck",
+            "initial": 50
         }
     }
 }

@@ -2,6 +2,7 @@ import os
 import json
 import datetime
 import time
+import re
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -28,9 +29,27 @@ class AutonomousArchitect:
         self.model_name = self.config.get("llm_model", "gemini-2.0-flash-exp")
         gen_cfg = self.config.get("generation", {})
         self.target_scene_count = int(gen_cfg.get("target_scene_count", 15))
-        self.current_scene_num = 0
+        self.current_scene_num = 1
         self.cache = None
         self.chat = None
+
+    def _filter_context(self, full_text, max_scenes=5):
+        """Filters the .ink content to keep only variables and the last N scenes."""
+        lines = full_text.splitlines()
+        # Keep global variables (name, bio, traits) so the LLM knows who the player is
+        vars_lines = [l for l in lines if l.strip().startswith("VAR ")]
+        
+        # Identify main scene knots (ignoring the 'result' knots)
+        knot_indices = [i for i, l in enumerate(lines) if l.strip().startswith("==") and "_result_" not in l]
+        
+        if not knot_indices:
+            return full_text
+            
+        # Select the starting point for the last N scenes
+        target_index = knot_indices[-max_scenes] if len(knot_indices) > max_scenes else knot_indices[0]
+        
+        # Reconstruct: Variables at the top, then the recent story chunk
+        return "\n".join(vars_lines) + "\n\n" + "\n".join(lines[target_index:])
     
     def set_scene_number(self, number):
         self.current_scene_num = number
@@ -128,9 +147,10 @@ class AutonomousArchitect:
         1. If NOT the end: Provide exactly 3 choices (Golden, Exquisite, Bad).
         2. If IT IS the end: Set "ending" to a vivid final paragraph.
         3. 'scene_id' must be snake_case.
-        3. UNIFIED STRUCTURE: Every choice MUST have an 'outcome_text' describing what happens next.
-        4. TRAIT LOGIC: If an 'outcome_text' clearly affects a trait, you may change the trait value between -20 and +20.
-        4. REWARD LOGIC: The 'exquisite' choice MUST include a 'reward_visual_prompt' that visualizes its specific 'outcome_text'.
+        4. UNIFIED STRUCTURE: Every choice MUST have an 'outcome_text' describing what happens next.
+        5. TRAIT LOGIC: Use ONLY the trait label names (e.g. 'health', 'luck') as keys in 'trait_changes'.
+        If an 'outcome_text' clearly affects a trait, you may change the trait value between -20 and +20.
+        4. REWARD LOGIC: The 'exquisite' choice MUST include a 'reward_visual_prompt'.
 
         JSON STRUCTURE:
         {{
@@ -168,8 +188,8 @@ class AutonomousArchitect:
     def generate_main_beat(self, node_id, force_ending=False):
         self.current_scene_num += 1
         self._ensure_chat_ready() # 🛠️ FIX: Connects to Google only now
-        active_traits = [f"{k} ({v['label']})" for k, v in self.config.get("traits", {}).items() if v['label']]
-        traits_hint = "Active traits: " + ", ".join(active_traits) if active_traits else "No traits active."
+        active_traits = [re.sub(r'\W+', '_', v['label'].lower()) for k, v in self.config.get("traits", {}).items() if v['label']]
+        traits_hint = "TRAIT RULES: You MUST use these exact variable names for changes: " + ", ".join(active_traits) if active_traits else "No traits active."
         if force_ending:
             pacing_instruction = f"""
             CRITICAL: This is the FINAL SCENE of the story (Scene {self.current_scene_num}).
@@ -183,7 +203,7 @@ class AutonomousArchitect:
         {pacing_instruction}
         Advance the story from {node_id}. 
         {traits_hint}
-        Suggest changes for active traits in 'trait_changes' field (e.g., "trait_1": 10).
+        Suggest changes for active traits in 'trait_changes' field (e.g., "health": 10).
 
         Describe the conclusion of the prevoious scene and the next major scene where the protagonist faces a decision. 
         Descibe the scene vividly and with the same tone and style as the book.
@@ -241,11 +261,13 @@ class AutonomousArchitect:
     def resume_session(self, content_to_send):
         """Verbesserter Resume-Handshake."""
         self._ensure_chat_ready()
+        optimized_content = self._filter_context(content_to_send, max_scenes=5)
+
         prompt = f"""
         RESUME ADVENTURE. 
-        Story so far:
+        Story so far (Key Context & Last 5 scenes):
         ---
-        {content_to_send}
+        {optimized_content}
         ---
         Analyze the state. Return JSON ONLY: 
         {{"status": "synchronized", "last_node": "ID_HERE", "summary": "..."}}
@@ -265,14 +287,26 @@ class AutonomousArchitect:
             Based on this story summary: {story_so_far}
             
             Write a poetic and satisfying 'The End' section (approx 100 words). 
+            
+            CRITICAL MULTI-LANGUAGE REQUIREMENT:
+            - Write 'scene_text' in the SAME LANGUAGE as the provided book text.
+            - Write 'visual_prompt' in ENGLISH.
+
             Return JSON ONLY:
             {{
                 "scene_text": "Your concluding text...",
-                "visual_prompt": "A final cinematic image description"
+                "visual_prompt": "A final cinematic image description",
+                "audio_prompt": "A final cinematic sound description",
+                "choices": []
             }}
             """
             resp = self.chat.send_message(prompt)
-            return self._parse_json(resp.text)
+            data = self._parse_json(resp.text)
+            
+            # Ensure choices key exists for compatibility with InkSmith
+            if data and "choices" not in data:
+                data["choices"] = []
+            return data
 
     def _validate_and_retry(self, raw_text, required_keys, retries=3):
             for _ in range(retries):

@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+import re
 from utils import DashboardUtils
 from sound_weaver import SoundWeaver
 import shutil
@@ -8,6 +9,8 @@ def render_character_selection():
     # FIX: Check if selection has already happened to avoid unnecessary re-renders
     if st.session_state.engine_ready:
         if st.session_state.get("selected_protagonist") is not None:
+            if st.session_state.selected_protagonist == "resumed":
+                return None
             return st.session_state.selected_protagonist
 
         if st.session_state.book_pitch is None:
@@ -60,17 +63,16 @@ def render_scene_editor(scene, current_config):
             c_out = st.text_area(f"{label_prefix}: Outcome", value=c.get('outcome_text', ''), height=75, key=f"c_out_{i}")
             
             # Trait Logic (Refactored for stability)
-            active_traits = {k: v for k, v in current_config.get("traits", {}).items() if v.get('label')}
+            active_traits = {re.sub(r'\W+', '_', v.get('label', '').lower()): v for k, v in current_config.get("traits", {}).items() if v.get('label')}
             current_trait_changes = c.get("trait_changes", {}).copy() if isinstance(c.get("trait_changes"), dict) else {}
-            
             if active_traits:
                 t_cols = st.columns(len(active_traits))
-                for idx, (t_key, t_data) in enumerate(active_traits.items()):
+                for idx, (var_name, t_data) in enumerate(active_traits.items()):
                     with t_cols[idx]:
                         val = st.number_input(f"Δ {t_data['label']}", 
-                                           value=current_trait_changes.get(t_key, 0), 
-                                           key=f"delta_{t_key}_{i}")
-                        current_trait_changes[t_key] = val
+                                           value=current_trait_changes.get(var_name, 0), 
+                                           key=f"delta_{var_name}_{i}")
+                        current_trait_changes[var_name] = val
             c["trait_changes"] = current_trait_changes
 
         # Reward prompt for exquisite choices
@@ -85,6 +87,9 @@ def render_scene_editor(scene, current_config):
 
 def render_sidebar_tabs(current_config, weaver, available_books):
     """Encapsulates all sidebar settings and library management."""
+    if st.session_state.get("engine_ready", False):
+        return
+
     tab_lib, tab_conf = st.sidebar.tabs(["📚 Library", "🔧 Config"])
 
     with tab_lib:
@@ -130,127 +135,128 @@ def render_sidebar_tabs(current_config, weaver, available_books):
                 current_config["book_id"] = "".join(x for x in os.path.splitext(current_book_filename)[0] if x.isalnum() or x in "_-")
                 current_config["book_filename"] = current_book_filename
                 DashboardUtils.save_config(current_config)
-
-    with tab_conf:
-        st.markdown("### 🛠️ Generation Settings")
-        gen_cfg = current_config.get('generation', {})
-        
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            st.subheader("🎨 Visuals")
-            img_count = st.slider("Images per Scene", 0, 8, gen_cfg.get('images_per_scene', 4))
-            scene_count = st.slider("Scenes per Book", 0, 50, gen_cfg.get('target_scene_count', 12))
-        with col_g2:
-            st.subheader("🎧 Audio")
-            snd_count = st.slider("Sounds per Scene", 0, 5, gen_cfg.get('sounds_per_scene', 1))
-            snd_len = st.number_input("Sound Duration (sec)", 1, 30, gen_cfg.get('sound_length_seconds', 5))
-            snd_loop = st.checkbox("Seamless Loop", value=gen_cfg.get('sound_loop', False))
+    if tab_conf:
+        with tab_conf:
+            st.markdown("### 🛠️ Generation Settings")
+            gen_cfg = current_config.get('generation', {})
             
-        st.divider()
-        title = st.text_input("Project Title", value=st.session_state.get("c_title", current_config.get("title", "New Adventure")), key="c_title_in")
-        
-        st.markdown("#### 🧠 AI Brain")
-        available_llms = DashboardUtils.fetch_gemini_models()
-        default_model = current_config.get("llm_model", "gemini-2.0-flash-exp")
-        default_idx = available_llms.index(default_model) if default_model in available_llms else 0
-        llm_model = st.selectbox("LLM Model", options=available_llms, index=default_idx)
-
-        st.markdown("#### 🎨 Visual Style")
-        vis = current_config.get("visual_settings", {})
-        m_style = st.text_area("Master Style", value=vis.get("master_style", ""), key="c_style")
-        p_prompt = st.text_area("Positive Prompt", value=vis.get("positive_prompt", ""), key="c_pos")
-        n_prompt = st.text_area("Negative Prompt", value=vis.get("negative_prompt", ""), key="c_neg")
-
-        st.markdown("🎭 Traits")
-        traits_cfg = current_config.get("traits", {"trait_1": {"label": "", "initial": 50}, "trait_2": {"label": "", "initial": 50}, "trait_3": {"label": "", "initial": 50}})
-        cols = st.columns(3)
-        for i in range(1, 4):
-            key = f"trait_{i}"
-            with cols[i-1]:
-                traits_cfg[key]["label"] = st.text_input(f"Trait {i}", value=traits_cfg[key]["label"], key=f"lab_{key}")
-                traits_cfg[key]["initial"] = st.number_input(f"Init {i}", value=traits_cfg[key]["initial"], key=f"init_{key}")
-
-        with st.expander("🖼️ Stable Diffusion Advanced"):
-            sd = current_config.get("sd_settings", {})
+            col_g1, col_g2 = st.columns(2)
+            with col_g1:
+                st.subheader("🎨 Visuals")
+                img_count = st.slider("Images per Scene", 0, 8, gen_cfg.get('images_per_scene', 4))
+                scene_count = st.slider("Scenes per Book", 0, 50, gen_cfg.get('target_scene_count', 12))
+            with col_g2:
+                st.subheader("🎧 Audio")
+                snd_count = st.slider("Sounds per Scene", 0, 5, gen_cfg.get('sounds_per_scene', 1))
+                snd_len = st.number_input("Sound Duration (sec)", 1, 30, gen_cfg.get('sound_length_seconds', 5))
+                snd_loop = st.checkbox("Seamless Loop", value=gen_cfg.get('sound_loop', False))
+                
+            st.divider()
+            title = st.text_input("Project Title", value=st.session_state.get("c_title", current_config.get("title", "New Adventure")), key="c_title_in")
             
-            # Fetch and handle models
-            available_models = weaver.get_sd_models() if weaver else []
-            current_model_val = sd.get("sd_model", "")
-            if available_models:
-                if current_model_val and current_model_val not in available_models:
-                    available_models.insert(0, current_model_val)
-                idx = available_models.index(current_model_val) if current_model_val in available_models else 0
-                sd_m = st.selectbox("SD Model", available_models, index=idx)
-            else:
-                sd_m = st.text_input("SD Model", value=current_model_val)
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                width = st.number_input("Width", value=sd.get("width", 512))
-                steps = st.number_input("Steps", value=sd.get("steps", 20))
-                # RE-INTRODUCED: Sampler
-                sampler = st.text_input("Sampler (Method)", value=sd.get("sampler_name", "Euler a"))
-            with c2:
-                height = st.number_input("Height", value=sd.get("height", 512))
-                cfg = st.number_input("CFG Scale", value=sd.get("cfg_scale", 7.0))
-                # RE-INTRODUCED: Scheduler
-                scheduler = st.text_input("Scheduler (Type)", value=sd.get("scheduler", "normal"))
+            st.markdown("#### 🧠 AI Brain")
+            available_llms = DashboardUtils.fetch_gemini_models()
+            default_model = current_config.get("llm_model", "gemini-2.0-flash-exp")
+            default_idx = available_llms.index(default_model) if default_model in available_llms else 0
+            llm_model = st.selectbox("LLM Model", options=available_llms, index=default_idx)
 
-        st.markdown("#### 👥 Character Bible")
-        if "temp_char_map" not in st.session_state:
-            st.session_state.temp_char_map = current_config.get("character_map", {}).copy()
-        
-        c_name = st.text_input("Name", key="bible_name_in")
-        c_desc = st.text_input("Visual Description", key="bible_desc_in")
-        if st.button("➕ Add Character"):
-            if c_name and c_desc:
-                st.session_state.temp_char_map[c_name] = c_desc
+            st.markdown("#### 🎨 Visual Style")
+            vis = current_config.get("visual_settings", {})
+            m_style = st.text_area("Master Style", value=vis.get("master_style", ""), key="c_style")
+            p_prompt = st.text_area("Positive Prompt", value=vis.get("positive_prompt", ""), key="c_pos")
+            n_prompt = st.text_area("Negative Prompt", value=vis.get("negative_prompt", ""), key="c_neg")
+
+            st.markdown("🎭 Traits")
+            traits_cfg = current_config.get("traits", {})
+            # Show all traits by label, allow editing/adding
+            trait_keys = list(traits_cfg.keys())
+            cols = st.columns(max(1, len(trait_keys)))
+            for idx, key in enumerate(trait_keys):
+                with cols[idx]:
+                    traits_cfg[key]["label"] = st.text_input(f"Trait {idx+1}", value=traits_cfg[key]["label"], key=f"lab_{key}")
+                    traits_cfg[key]["initial"] = st.number_input(f"Init {idx+1}", value=traits_cfg[key]["initial"], key=f"init_{key}")
+
+            with st.expander("🖼️ Stable Diffusion Advanced"):
+                sd = current_config.get("sd_settings", {})
+                
+                # Fetch and handle models
+                available_models = weaver.get_sd_models() if weaver else []
+                current_model_val = sd.get("sd_model", "")
+                if available_models:
+                    if current_model_val and current_model_val not in available_models:
+                        available_models.insert(0, current_model_val)
+                    idx = available_models.index(current_model_val) if current_model_val in available_models else 0
+                    sd_m = st.selectbox("SD Model", available_models, index=idx)
+                else:
+                    sd_m = st.text_input("SD Model", value=current_model_val)
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    width = st.number_input("Width", value=sd.get("width", 512))
+                    steps = st.number_input("Steps", value=sd.get("steps", 20))
+                    # RE-INTRODUCED: Sampler
+                    sampler = st.text_input("Sampler (Method)", value=sd.get("sampler_name", "Euler a"))
+                with c2:
+                    height = st.number_input("Height", value=sd.get("height", 512))
+                    cfg = st.number_input("CFG Scale", value=sd.get("cfg_scale", 7.0))
+                    # RE-INTRODUCED: Scheduler
+                    scheduler = st.text_input("Scheduler (Type)", value=sd.get("scheduler", "normal"))
+
+            st.markdown("#### 👥 Character Bible")
+            if "temp_char_map" not in st.session_state:
+                st.session_state.temp_char_map = current_config.get("character_map", {}).copy()
+            
+            c_name = st.text_input("Name", key="bible_name_in")
+            c_desc = st.text_input("Visual Description", key="bible_desc_in")
+            if st.button("➕ Add Character"):
+                if c_name and c_desc:
+                    st.session_state.temp_char_map[c_name] = c_desc
+                    st.rerun()
+
+            for name, desc in list(st.session_state.temp_char_map.items()):
+                col1, col2 = st.columns([4, 1])
+                col1.text(f"{name}: {desc}")
+                if col2.button("🗑️", key=f"del_{name}"):
+                    del st.session_state.temp_char_map[name]
+                    st.rerun()
+
+            if st.button("💾 Save All Settings", type="primary", use_container_width=True):
+                current_config.update({
+                    "title": title, 
+                    "llm_model": llm_model, 
+                    "traits": traits_cfg,
+                    "character_map": st.session_state.temp_char_map,
+                    "generation": {
+                        "target_scene_count": scene_count, 
+                        "images_per_scene": img_count, 
+                        "sounds_per_scene": snd_count, 
+                        "sound_length_seconds": snd_len, 
+                        "sound_loop": snd_loop
+                    },
+                    "visual_settings": {
+                        "master_style": m_style, 
+                        "positive_prompt": p_prompt, 
+                        "negative_prompt": n_prompt
+                    },
+                    "sd_settings": {
+                        "sd_model": sd_m, 
+                        "width": width, 
+                        "height": height, 
+                        "steps": steps, 
+                        "cfg_scale": cfg,
+                        "sampler_name": sampler,   # Ensure saved to config
+                        "scheduler": scheduler      # Ensure saved to config
+                    }
+                })
+                DashboardUtils.save_config(current_config)
+                st.success("✅ Configuration Saved!")
                 st.rerun()
 
-        for name, desc in list(st.session_state.temp_char_map.items()):
-            col1, col2 = st.columns([4, 1])
-            col1.text(f"{name}: {desc}")
-            if col2.button("🗑️", key=f"del_{name}"):
-                del st.session_state.temp_char_map[name]
-                st.rerun()
-
-        if st.button("💾 Save All Settings", type="primary", use_container_width=True):
-            current_config.update({
-                "title": title, 
-                "llm_model": llm_model, 
-                "traits": traits_cfg,
-                "character_map": st.session_state.temp_char_map,
-                "generation": {
-                    "target_scene_count": scene_count, 
-                    "images_per_scene": img_count, 
-                    "sounds_per_scene": snd_count, 
-                    "sound_length_seconds": snd_len, 
-                    "sound_loop": snd_loop
-                },
-                "visual_settings": {
-                    "master_style": m_style, 
-                    "positive_prompt": p_prompt, 
-                    "negative_prompt": n_prompt
-                },
-                "sd_settings": {
-                    "sd_model": sd_m, 
-                    "width": width, 
-                    "height": height, 
-                    "steps": steps, 
-                    "cfg_scale": cfg,
-                    "sampler_name": sampler,   # Ensure saved to config
-                    "scheduler": scheduler      # Ensure saved to config
-                }
-            })
-            DashboardUtils.save_config(current_config)
-            st.success("✅ Configuration Saved!")
-            st.rerun()
-
-        st.divider()
-        if st.button("⚙️ Compile .ink to .json", use_container_width=True):
-            success, msg = DashboardUtils.compile_ink_to_json(current_config.get("book_id"))
-            if success: st.success(f"✅ {msg}")
-            else: st.error(f"⚠️ {msg}")
+            st.divider()
+            if st.button("⚙️ Compile .ink to .json", use_container_width=True):
+                success, msg = DashboardUtils.compile_ink_to_json(current_config.get("book_id"))
+                if success: st.success(f"✅ {msg}")
+                else: st.error(f"⚠️ {msg}")
 
 def render_art_selection(scene, current_config, weaver, current_dir):
     """Handles the UI and file logic for selecting Scene Art, Reward Art, and Audio."""
@@ -306,8 +312,19 @@ def render_art_selection(scene, current_config, weaver, current_dir):
             gen_key_rew = f"gen_rew_{base_id}"
             
             if gen_key_rew not in st.session_state:
-                with st.spinner("Painting Reward..."):
-                    imgs = weaver.generate_batch(prompt=exquisite_choice.get('reward_visual_prompt'), count=img_count, base_filename=f"{base_id}_REW")
+                with st.spinner("💎 Painting Reward..."):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    def update_ui(p, c, t):
+                        progress_bar.progress(p)
+                        status_text.text(f"💎 Image {c}/{t} ({p}%)")
+
+                    imgs = weaver.generate_batch(
+                        prompt=exquisite_choice.get('reward_visual_prompt'),
+                        count=img_count,
+                        base_filename=f"{base_id}_REW",
+                        callback=update_ui
+                    )
                     st.session_state[gen_key_rew] = imgs
                     st.rerun()
 

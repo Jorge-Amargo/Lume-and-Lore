@@ -1,11 +1,30 @@
+
 import os
 import time
 import json
+import streamlit as st
+import re
 
 class InkSmith:
-    def __init__(self, book_id):
-        self.base_dir = os.path.join(os.path.dirname(__file__), "..", "data", "output", book_id)
-        os.makedirs(self.base_dir, exist_ok=True)
+    def __init__(self, book_id, project_path=None, auto_create=True):
+        from utils import DashboardUtils
+        
+        self.config = DashboardUtils.load_config()
+        self.title = self.config.get('title', f'Adventure_{book_id}')
+        
+        # Priority: 1. Manual override, 2. Session State, 3. Fallback to book_id
+        if project_path:
+            self.base_dir = project_path
+        elif "active_project_path" in st.session_state:
+            self.base_dir = st.session_state.active_project_path
+        else:
+            output_dir = os.path.join(os.path.dirname(__file__), "..", "data", "output")
+            self.base_dir = os.path.join(output_dir, book_id)
+
+        # only create directory when requested (prevents side effects during sidebar
+        # book-selection or resume checks)
+        if auto_create:
+            os.makedirs(self.base_dir, exist_ok=True)
         self.ink_path = os.path.join(self.base_dir, "adventure.ink")
         
         from utils import DashboardUtils
@@ -13,15 +32,16 @@ class InkSmith:
         self.images_per_scene = self.config.get('generation', {}).get('images_per_scene', 4)
         
         # Initialize file (Keep last_node for Resume logic, remove health/morale)
-        if not os.path.exists(self.ink_path):
+        if auto_create and not os.path.exists(self.ink_path):
             traits_cfg = self.config.get("traits", {})
             header_lines = ["// Lume & Lore Adventure Script"]
             
-            for key in ["trait_1", "trait_2", "trait_3"]:
-                trait = traits_cfg.get(key, {})
-                if trait.get("label"): # Nur deklarieren, wenn ein Name existiert
-                    header_lines.append(f"VAR {key} = {trait.get('initial', 50)}  // {trait['label']}")
-            
+            for key, trait in traits_cfg.items():
+                label = trait.get("label", "").strip()
+                if label:
+                    var_name = re.sub(r'\W+', '_', label.lower())
+                    header_lines.append(f"VAR {var_name} = {trait.get('initial', 50)}  // {label}")
+            # Always declare last_node for resume logic
             header_lines.append("VAR last_node = \"intro\"")
             header_lines.append("-> intro\n\n")
             self._write_to_file(header_lines)
@@ -94,6 +114,45 @@ class InkSmith:
     def write_intro(self, scene_data, next_slug, audio_file: str = None, audio_prompt: str = None):
         # 🛠️ FIX: Use the actual scene_id (e.g., "intro") so result nodes match
         scene_id = scene_data.get('scene_id', 'intro')
+        
+        # Check if file already exists and contains protagonist/traits (from utils.py initialize_ink_file)
+        if os.path.exists(self.ink_path):
+            with open(self.ink_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # Check if file contains protagonist or trait variables (indicating it was initialized by utils.py)
+            has_protagonist = "protagonist_name" in content
+            has_traits = any(f"VAR trait_{i}" in content for i in range(1, 4))
+            
+            if has_protagonist or has_traits:
+                # File already has initial variables, so append the intro scene instead of overwriting
+                # Use the actual scene_id from scene_data, default to 'intro' if not provided
+                actual_scene_id = scene_data.get('scene_id', 'intro')
+                lines = [
+                    f"== {actual_scene_id} ==",
+                    f"{scene_data.get('scene_text', '')}",
+                ]
+                # Only include an image tag if images are enabled in the config
+                if getattr(self, 'images_per_scene', 1) > 0:
+                    lines.append(f"# IMAGE: {actual_scene_id}_main.png")
+                if audio_file:
+                    lines.append(f"# AUDIO: {audio_file}")
+
+                # Render generated choices for the intro the same way other scenes do.
+                # If the architect hasn't produced choices, divert to the next slug.
+                choices = scene_data.get('choices', [])
+                if choices:
+                    lines.append(self._format_choices(actual_scene_id, choices, next_slug))
+                else:
+                    lines.append(f"-> {next_slug}")
+
+                lines.append("\n")
+                
+                # Append to existing file to preserve protagonist and trait variables
+                self._append_to_file(lines)
+                return
+
+        # If file doesn't exist or doesn't have initial variables, use original logic
         # Header with ONLY the necessary tracking variable
         header = [
             "// Lume & Lore Adventure Script",
@@ -122,7 +181,7 @@ class InkSmith:
         lines.append("\n")
 
         # KEY FIX: Overwrite file to clear previous runs (Fixes duplicate intro)
-        self._write_to_file(header + lines)
+        self._append_to_file(lines)
 
     def write_main_node_start(self, scene_id, text, image_file, choices, next_slug, audio_file: str = None, audio_prompt: str = None):
         lines = [
@@ -172,10 +231,20 @@ class InkSmith:
             trait_changes = choice.get('trait_changes', {})
             for t_key, delta in trait_changes.items():
                 if delta != 0:
-                    # Format: ~ trait_1 = trait_1 + 10
+                    # t_key may be a label or a trait_x; always convert to label-based var name
+                    trait_label = t_key
+                    # If config uses trait_1, map to label
+                    if t_key.startswith('trait_'):
+                        trait_cfg = self.config.get('traits', {}).get(t_key, {})
+                        label = trait_cfg.get('label', '').strip()
+                        if label:
+                            trait_label = re.sub(r'\W+', '_', label.lower())
+                    else:
+                        # If label, normalize
+                        trait_label = re.sub(r'\W+', '_', trait_label.lower())
                     operator = "+" if delta > 0 else "-"
                     abs_delta = abs(delta)
-                    lines.append(f"~ {t_key} = {t_key} {operator} {abs_delta}")    
+                    lines.append(f"~ {trait_label} = {trait_label} {operator} {abs_delta}")
             lines.append(f"-> {next_main_id}\n")
             
         self._append_to_file(lines)
@@ -232,6 +301,39 @@ class InkSmith:
                 
         with open(self.ink_path, "w", encoding="utf-8") as f:
             f.writelines(new_lines)
+
+    def write_scene(self, scene_data, next_slug, scene_type="main", audio_file: str = None, audio_prompt: str = None):
+        """
+        Unified method for writing any scene type (intro or main).
+        
+        Args:
+            scene_data (dict): Scene data containing text, choices, etc.
+            next_slug (str): The next scene slug/ID
+            scene_type (str): "intro" or "main"
+            audio_file (str): Audio file name for the scene
+            audio_prompt (str): Audio prompt for the scene
+            
+        Returns:
+            None
+        """
+        if scene_type == "intro":
+            return self.write_intro(scene_data, next_slug, audio_file=audio_file, audio_prompt=audio_prompt)
+        elif scene_type == "main":
+            scene_id = scene_data.get('scene_id') or next_slug.replace('_next', '')
+            text = scene_data.get('scene_text', '')
+            image_file = f"{scene_id}_main"
+            choices = scene_data.get('choices', [])
+            return self.write_main_node_start(
+                scene_id, 
+                text, 
+                image_file,
+                choices, 
+                next_slug,
+                audio_file=audio_file,
+                audio_prompt=audio_prompt
+            )
+        else:
+            raise ValueError(f"Unknown scene type: {scene_type}")
     
     def connect_scenes(self, source_placeholder_id, target_scene_id):
         """

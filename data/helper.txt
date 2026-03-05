@@ -1,0 +1,19 @@
+streamlit run Maker/dashboard.py
+
+git status
+git add .
+
+git commit -m "Version name"
+git push
+
+
+git rm -f .git/index.lock
+git rm abc.py
+
+git reset --hard origin/main
+
+
+Conda
+activate environment: activate py35
+list of environments: conda env list
+deactivate current environment: deactivate

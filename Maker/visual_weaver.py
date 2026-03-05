@@ -8,7 +8,12 @@ import random
 from session_manager import initialize_session_state, BOOKS_DIR, current_dir, CONFIG_PATH, DEFAULT_LLMS
 
 class VisualWeaver:
-    def __init__(self, api_url="http://127.0.0.1:7860"):
+    def __init__(self, api_url="http://127.0.0.1:7860", auto_make_dir=True):
+        """Initialize SD helper.
+        :param auto_make_dir: when False, the output directory is not created. This is
+            useful when we just need to query models or show UI without starting a
+            project; avoids spurious folder creation when selecting a book.
+        """
         from utils import DashboardUtils
         self.config = DashboardUtils.load_config()
         
@@ -35,7 +40,8 @@ class VisualWeaver:
         # This points to: .../Lume_and_Lore/data/output/[ID]/assets
         self.output_dir = os.path.join(current_dir, "..", "data", "output", str(self.config['book_id']), "assets")
         
-        if not os.path.exists(self.output_dir):
+        # create the directory only if permitted
+        if auto_make_dir and not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir, exist_ok=True)
     
     def check_connection(self):
@@ -186,6 +192,7 @@ class VisualWeaver:
 
                 # Process and save the image
                 image_data = base64.b64decode(r['images'][0])
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
                 with open(save_path, "wb") as f:
                     f.write(image_data)
                 
