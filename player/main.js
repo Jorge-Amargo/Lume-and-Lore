@@ -3,23 +3,383 @@ let story;
 let currentProject = "";
 let unlockedImages = { scenes: [], rewards: [] };
 let activeGalleryTab = 'scenes';
-let typewriterEnabled = true;
-let typewriterSpeed = 50; // milliseconds per character
+let trackedTraits = [];
+let lastTraitValues = {};
+const MAX_TRACKED_TRAITS = 3;
+const NON_TRAIT_VARIABLES = new Set(['protagonist_name', 'protagonist_bio', 'last_node']);
+const settings = {
+    typewriterEnabled: true,
+    typewriterSpeed: 50 // ms per character
+};
+
+let adventureFlowLog = [];
+let traitChangeLog = [];
+let storySessionStartedAt = null;
+let storyReachedEnding = false;
+let flowStepCounter = 0;
+let sceneTitleLookup = {};
+let currentRenderedSceneKey = null;
+
 
 // UI References
 const storyContainer = document.querySelector('#story-text');
 const choicesContainer = document.querySelector('#choices-container');
 const imageElement = document.querySelector('#scene-image');
 const rewardBanner = document.querySelector('#reward-banner');
+const traitsPanel = document.querySelector('#traits-panel');
+
+function clampTraitValue(value) {
+    return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getTextPane() {
+    return document.getElementById('text-container');
+}
+
+function easeInOutCubic(t) {
+    return t < 0.5
+        ? 4 * t * t * t
+        : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function animateTextPaneScrollTo(targetTop, duration = 1200) {
+    const textPane = getTextPane();
+    if (!textPane) return;
+
+    const startTop = textPane.scrollTop;
+    const clampedTarget = Math.max(0, targetTop);
+    const distance = clampedTarget - startTop;
+
+    if (Math.abs(distance) < 2) {
+        textPane.scrollTop = clampedTarget;
+        return;
+    }
+
+    const startTime = performance.now();
+    const step = now => {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = easeInOutCubic(progress);
+        textPane.scrollTop = startTop + (distance * eased);
+        if (progress < 1) {
+            requestAnimationFrame(step);
+        }
+    };
+
+    requestAnimationFrame(step);
+}
+
+function scrollStoryToBottom(duration = 1300) {
+    const textPane = getTextPane();
+    if (!textPane) return;
+    animateTextPaneScrollTo(textPane.scrollHeight, duration);
+}
+
+function formatTraitName(name) {
+    return name
+        .split(/[_\s]+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+function getVariablesStateSnapshot() {
+    if (!story) return {};
+    const variables = {};
+    try {
+        const varsState = story.variablesState;
+        if (!varsState) return {};
+        const keys = Object.keys(varsState);
+        keys.forEach(key => {
+            variables[key] = varsState[key];
+        });
+    } catch (e) {
+        console.warn("Could not read story variables for trait tracking:", e);
+    }
+    return variables;
+}
+
+function normalizeTags(tags) {
+    return Array.isArray(tags) ? tags.filter(Boolean).map(tag => String(tag)) : [];
+}
+
+function extractImageFromTags(tags) {
+    const imageTag = normalizeTags(tags).find(tag => tag.startsWith('IMAGE:'));
+    if (!imageTag) return null;
+    return imageTag.split(':').slice(1).join(':').trim();
+}
+
+function sceneKeyFromImageFile(fileName) {
+    if (!fileName) return null;
+    return String(fileName)
+        .replace(/\.[^/.]+$/, '')
+        .replace(/_(main|reward)$/i, '')
+        .trim();
+}
+
+function formatSceneTitle(sceneKey) {
+    if (!sceneKey) return 'Untitled Scene';
+    return String(sceneKey)
+        .split(/[_\s]+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+function getSceneMetadataFromTags(tags) {
+    const imageFile = extractImageFromTags(tags);
+    const sceneKey = sceneKeyFromImageFile(imageFile);
+    const sceneTitle = sceneTitleLookup[sceneKey] || formatSceneTitle(sceneKey);
+    return { sceneKey, sceneTitle, imageFile };
+}
+
+function buildSceneTitleLookupFromAdventure(adventureJson) {
+    const lookup = {};
+    const root = Array.isArray(adventureJson?.root) ? adventureJson.root : null;
+    const rootObj = root && typeof root[2] === 'object' ? root[2] : null;
+    if (!rootObj) return lookup;
+
+    Object.keys(rootObj).forEach(key => {
+        if (!key || typeof key !== 'string') return;
+        if (key === 'start_node' || key === 'global decl') return;
+        if (key.includes('_result_') || key.endsWith('_next')) return;
+        const nodeValue = rootObj[key];
+        if (!Array.isArray(nodeValue) && typeof nodeValue !== 'string') return;
+        lookup[key] = formatSceneTitle(key);
+    });
+
+    return lookup;
+}
+
+function renderSceneHeaderIfNeeded(sceneKey, sceneTitle) {
+    if (!sceneKey || !sceneTitle) return;
+    if (currentRenderedSceneKey === sceneKey) return;
+    const header = document.createElement('h2');
+    header.className = 'scene-header';
+    header.innerText = sceneTitle;
+    storyContainer.appendChild(header);
+    currentRenderedSceneKey = sceneKey;
+}
+
+function removeLastOutcomeFlowEntryByText(text) {
+    const target = String(text || '').trim();
+    if (!target) return;
+    for (let idx = adventureFlowLog.length - 1; idx >= 0; idx--) {
+        const entry = adventureFlowLog[idx];
+        if (!entry) continue;
+        if (entry.type === 'outcome' && String(entry.text || '').trim() === target) {
+            adventureFlowLog.splice(idx, 1);
+            break;
+        }
+    }
+}
+
+function resetAdventureTracking() {
+    adventureFlowLog = [];
+    traitChangeLog = [];
+    flowStepCounter = 0;
+    storyReachedEnding = false;
+    storySessionStartedAt = new Date().toISOString();
+    currentRenderedSceneKey = null;
+}
+
+function addFlowEntry(type, payload = {}) {
+    const entry = {
+        step: ++flowStepCounter,
+        type,
+        timestamp: new Date().toISOString(),
+        ...payload
+    };
+    adventureFlowLog.push(entry);
+    return entry;
+}
+
+function getTrackedTraitSnapshot() {
+    const vars = getVariablesStateSnapshot();
+    return trackedTraits.map(name => ({
+        name,
+        label: formatTraitName(name),
+        value: clampTraitValue(typeof vars[name] === 'number' ? vars[name] : 0)
+    }));
+}
+
+function buildAdventureExportPayload() {
+    const vars = getVariablesStateSnapshot();
+    const selector = document.getElementById('project-selector');
+    const selectedOption = selector && selector.options ? selector.options[selector.selectedIndex] : null;
+    return {
+        projectId: currentProject,
+        projectTitle: selectedOption ? selectedOption.text : formatSceneTitle(currentProject),
+        createdAt: new Date().toISOString(),
+        startedAt: storySessionStartedAt,
+        protagonistName: String(vars.protagonist_name || ''),
+        flow: [...adventureFlowLog],
+        traitChanges: [...traitChangeLog],
+        finalTraits: getTrackedTraitSnapshot()
+    };
+}
+
+function detectTrackedTraits() {
+    const variables = getVariablesStateSnapshot();
+    const candidateTraits = Object.entries(variables)
+        .filter(([name, value]) => {
+            if (NON_TRAIT_VARIABLES.has(name)) return false;
+            if (typeof name !== 'string' || name.startsWith('$')) return false;
+            if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+            return value >= 0 && value <= 100;
+        })
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(0, MAX_TRACKED_TRAITS)
+        .map(([name]) => name);
+
+    trackedTraits = candidateTraits;
+    lastTraitValues = {};
+    trackedTraits.forEach(name => {
+        const value = variables[name];
+        if (typeof value === 'number') {
+            lastTraitValues[name] = clampTraitValue(value);
+        }
+    });
+}
+
+function updateTraitsPanel(playSounds = true) {
+    if (!traitsPanel || !story) return;
+    if (trackedTraits.length === 0) detectTrackedTraits();
+
+    if (trackedTraits.length === 0) {
+        traitsPanel.innerHTML = "";
+        traitsPanel.style.display = 'none';
+        return;
+    }
+
+    const variables = getVariablesStateSnapshot();
+    traitsPanel.style.display = 'grid';
+    traitsPanel.innerHTML = "";
+
+    trackedTraits.forEach(name => {
+        const raw = variables[name];
+        if (typeof raw !== 'number' || !Number.isFinite(raw)) return;
+
+        const value = clampTraitValue(raw);
+        const previous = lastTraitValues[name];
+        const delta = (typeof previous === 'number') ? value - previous : 0;
+
+        const card = document.createElement('div');
+        card.className = 'trait-card';
+
+        const row = document.createElement('div');
+        row.className = 'trait-row';
+
+        const label = document.createElement('span');
+        label.className = 'trait-name';
+        label.innerText = formatTraitName(name);
+
+        const valueWrap = document.createElement('div');
+        valueWrap.className = 'trait-value-wrap';
+
+        const valueEl = document.createElement('span');
+        valueEl.className = 'trait-value';
+        valueEl.innerText = String(value);
+
+        const deltaEl = document.createElement('span');
+        deltaEl.className = 'trait-delta';
+
+        if (delta !== 0) {
+            deltaEl.classList.add('show', delta > 0 ? 'up' : 'down');
+            deltaEl.innerText = `${delta > 0 ? '+' : ''}${delta}`;
+            card.classList.add(delta > 0 ? 'trait-up' : 'trait-down');
+            const traitChange = {
+                step: flowStepCounter,
+                timestamp: new Date().toISOString(),
+                trait: name,
+                traitLabel: formatTraitName(name),
+                from: previous,
+                to: value,
+                delta
+            };
+            traitChangeLog.push(traitChange);
+            addFlowEntry('trait_change', traitChange);
+            if (playSounds) {
+                traitSoundManager.playDelta(delta);
+            }
+            setTimeout(() => {
+                card.classList.remove('trait-up', 'trait-down');
+                deltaEl.classList.remove('show', 'up', 'down');
+            }, 900);
+        }
+
+        const bar = document.createElement('div');
+        bar.className = 'trait-bar';
+        const fill = document.createElement('div');
+        fill.className = 'trait-fill';
+        fill.style.width = `${value}%`;
+        bar.appendChild(fill);
+
+        valueWrap.appendChild(valueEl);
+        valueWrap.appendChild(deltaEl);
+
+        row.appendChild(label);
+        row.appendChild(valueWrap);
+
+        card.appendChild(row);
+        card.appendChild(bar);
+        traitsPanel.appendChild(card);
+
+        lastTraitValues[name] = value;
+    });
+
+    if (!traitsPanel.children.length) {
+        traitsPanel.style.display = 'none';
+    }
+}
 
 // --- INITIALIZATION ---
+// --- UI RESET/CLEANUP HELPER ---
+function resetGameUI() {
+    // Hide overlays and menu
+    const mainMenu = document.getElementById('main-menu');
+    if (mainMenu) {
+        mainMenu.style.display = 'none';
+        mainMenu.classList.remove('overlay');
+        mainMenu.setAttribute('aria-hidden', 'true');
+        mainMenu.style.zIndex = '0';
+    }
+    const gallery = document.getElementById('gallery-overlay');
+    if (gallery) {
+        gallery.style.display = 'none';
+        gallery.classList.remove('overlay');
+    }
+    const statusBar = document.getElementById('status-bar');
+    if (statusBar) statusBar.style.display = 'none';
+    const gameContainer = document.getElementById('game-container');
+    if (gameContainer) gameContainer.style.display = 'grid';
+    if (imageElement) {
+        imageElement.src = "";
+        imageElement.style.opacity = 0;
+    }
+    if (traitsPanel) {
+        traitsPanel.innerHTML = "";
+        traitsPanel.style.display = 'none';
+    }
+    if (storyContainer) storyContainer.innerHTML = "";
+}
+// --- ASSET PATH HELPER ---
+function getAssetPath(type, fileName = "") {
+    // type: 'assets', 'audio', etc.
+    // fileName: optional file name to append
+    if (!currentProject) return "";
+    let base = `/data/output/${currentProject}/`;
+    if (type === 'assets') base += 'assets/';
+    if (type === 'audio') base += 'audio/';
+    if (fileName) base += fileName;
+    return base;
+}
 window.onload = () => {
     // Restore typewriter setting from localStorage
     const saved = localStorage.getItem('typewriter_enabled');
     if (saved !== null) {
-        typewriterEnabled = saved === 'true';
+        settings.typewriterEnabled = saved === 'true';
     }
-    
     loadManifest();
 };
 
@@ -27,7 +387,7 @@ function loadManifest() {
     checkResumeStatus();
     const selector = document.getElementById('project-selector');
     const manifestPath = '../data/output/manifest.json';
-    console.log(`[DEBUG] Loading manifest from: ${manifestPath}`);
+    // ...existing code...
 
     fetch(manifestPath)
         .then(response => {
@@ -99,71 +459,79 @@ function checkResumeStatus() {
 // --- GAME ENGINE ---
 function startGame(saveData = null) {
     currentProject = document.getElementById('project-selector').value;
-    const assetsBase = `/data/output/${currentProject}/assets/`;
-    console.log(`[DEBUG] Assets Base set to: ${assetsBase}`);
+    trackedTraits = [];
+    lastTraitValues = {};
+    // ...existing code...
     if (!currentProject) {
         alert("Please select an adventure from the list first.");
         return;
     }
+
+    resetAdventureTracking();
+    sceneTitleLookup = {};
     
     // Initialize audio manager
     audioManager.init();
+    traitSoundManager.init();
     
     // 1. Load Gallery Progress
     const storedArt = localStorage.getItem(`unlocked_art_${currentProject}`);
     if (storedArt) unlockedImages = JSON.parse(storedArt);
     if (storyContainer) storyContainer.innerHTML = "";
 
-    // Aggressively hide overlays and menu (remove overlay class to prevent z-index/backdrop issues)
-    const mainMenu = document.getElementById('main-menu');
-    if (mainMenu) {
-        mainMenu.style.display = 'none';
-        mainMenu.classList.remove('overlay');
-        mainMenu.setAttribute('aria-hidden', 'true');
-        mainMenu.style.zIndex = '0';
-    }
-    const gallery = document.getElementById('gallery-overlay');
-    if (gallery) { gallery.style.display = 'none'; gallery.classList.remove('overlay'); }
-
-    const statusBar = document.getElementById('status-bar');
-    if (statusBar) statusBar.style.display = 'none';
-    document.getElementById('game-container').style.display = 'grid';
-
-    if (imageElement) {
-        imageElement.src = "";
-        imageElement.style.opacity = 0;
-    }
+    // Reset UI for new game
+    resetGameUI();
     
-    fetch(`${assetsBase}../adventure.json`)
-        .then(r => r.json())
-        .then(json => {
-            if (typeof inkjs === 'undefined') {
-                alert("CRITICAL ERROR: 'ink.js' not found.");
-                return;
+    const expectedPath = getAssetPath('assets', '../adventure.json');
+    fetch(expectedPath)
+        .then(r => {
+            if (!r.ok) {
+                throw new Error(`Failed to load adventure.json (HTTP ${r.status})`);
             }
-            
-            try {
-                story = new inkjs.Story(json);
-                
-                // UI Cleanup
-                const mainMenu = document.getElementById('main-menu');
-                const statusBar = document.getElementById('status-bar');
-                if (mainMenu) mainMenu.style.display = 'none';
-                if (statusBar) statusBar.style.display = 'none';
-                document.getElementById('game-container').style.display = 'grid';
-
-                // LOGIC FIX: Load save data if provided (e.g. from file upload)
-                if (saveData) {
-                    console.log("[DEBUG] Restoring save state...");
-                    story.state.LoadJson(saveData);
-                }
-
-                continueStory(); 
-            } catch (e) {
-                console.error("Story Init Error:", e);
-            }
+            return r.json();
         })
-        .catch(e => console.error("Could not load adventure.json", e));
+        .then(json => loadStory(json, saveData))
+        .catch(e => {
+            console.error("Could not load adventure.json", e);
+            const folder = expectedPath.replace(/adventure\.json.*/, '');
+            alert(
+                `Error: Could not find adventure.json.\n\n` +
+                `Expected location: ${folder}\n\n` +
+                `Please place your adventure.json file in this folder and try again.\n\n` +
+                `Details: ${e.message}`
+            );
+        });
+}
+
+// --- STORY LOADING LOGIC ---
+function loadStory(json, saveData = null) {
+    if (typeof inkjs === 'undefined') {
+        alert("CRITICAL ERROR: 'ink.js' not found. Please ensure ink.js is included in your project.");
+        return;
+    }
+    try {
+        sceneTitleLookup = buildSceneTitleLookupFromAdventure(json);
+        story = new inkjs.Story(json);
+        resetGameUI();
+        if (saveData) {
+            try {
+                story.state.LoadJson(saveData);
+            } catch (e) {
+                alert("Error: Failed to load save data. The file may be corrupted or incompatible.\n\n" + e.message);
+                console.error("Save Load Error:", e);
+            }
+        }
+        detectTrackedTraits();
+        addFlowEntry('session_start', {
+            mode: saveData ? 'resumed' : 'new',
+            note: saveData ? 'Journey resumed from save data.' : 'New journey started.'
+        });
+        updateTraitsPanel(false);
+        continueStory();
+    } catch (e) {
+        alert("Error: Failed to initialize the story. The adventure data may be corrupted or incompatible.\n\n" + e.message);
+        console.error("Story Init Error:", e);
+    }
 }
 
 // --- FILE I/O FUNCTIONS ---
@@ -201,24 +569,56 @@ function continueStory() {
     // We do NOT clear the storyContainer here because 
     // the first line of the scene was already added by the Proceed button
     
+    let loopCount = 0;
     while (story.canContinue) {
+        loopCount++;
         const text = story.Continue();
         const tags = story.currentTags;
-        
+        const sceneTransition = isSceneTransition(tags);
+        const sceneMeta = getSceneMetadataFromTags(tags);
+        if (sceneTransition) {
+            renderSceneHeaderIfNeeded(sceneMeta.sceneKey, sceneMeta.sceneTitle);
+        }
+        // ...existing code...
         const paragraph = document.createElement('p');
         if (tags && tags.length > 0) paragraph.setAttribute('data-tags', tags.join('|'));
         storyContainer.appendChild(paragraph);
-        
-        // Apply typewriter effect if enabled, otherwise show text instantly
-        if (typewriterEnabled) {
-            typewriterEffect(text, paragraph, typewriterSpeed);
+
+        // If this paragraph has an IMAGE tag, show the image only when typewriter starts
+        let imageTag = null;
+        if (tags && tags.length > 0) {
+            imageTag = tags.find(t => t.startsWith("IMAGE:"));
+        }
+
+        if (settings.typewriterEnabled) {
+            if (imageTag) {
+                // Show image immediately before typewriter starts
+                handleTags([imageTag]);
+                // Remove IMAGE tag from tags for further handling (avoid double handling)
+                const otherTags = tags.filter(t => t !== imageTag);
+                typewriterEffect(text, paragraph, settings.typewriterSpeed);
+                handleTags(otherTags);
+            } else {
+                typewriterEffect(text, paragraph, settings.typewriterSpeed);
+                handleTags(tags);
+            }
         } else {
             paragraph.innerText = text;
+            handleTags(tags);
         }
-        
-        handleTags(tags);
+
+        const trimmedText = String(text || '').trim();
+        if (trimmedText.length > 0) {
+            addFlowEntry(sceneTransition ? 'scene' : 'narration', {
+                text: trimmedText,
+                tags: normalizeTags(tags),
+                image: sceneMeta.imageFile,
+                sceneKey: sceneMeta.sceneKey,
+                sceneTitle: sceneMeta.sceneTitle
+            });
+        }
     }
-    
+    updateTraitsPanel(true);
     renderChoices();
 
     // If no text was produced immediately, defer a check to allow typewriter to start.
@@ -229,7 +629,7 @@ function continueStory() {
         if (!hasNonEmpty && paras.length === 0 && story.currentChoices && story.currentChoices.length > 0) {
             if (story.currentText && story.currentText.trim().length > 0) {
                 const p = document.createElement('p');
-                if (typewriterEnabled) typewriterEffect(story.currentText, p, typewriterSpeed);
+                if (settings.typewriterEnabled) typewriterEffect(story.currentText, p, settings.typewriterSpeed);
                 else p.innerText = story.currentText;
                 if (story.currentTags && story.currentTags.length > 0) p.setAttribute('data-tags', (story.currentTags || []).join('|'));
                 storyContainer.appendChild(p);
@@ -238,12 +638,11 @@ function continueStory() {
                 return;
             }
         }
+        scrollStoryToBottom(1200);
     }, 300);
-    
-    // Auto-scroll to top for the new scene
+
     requestAnimationFrame(() => {
-        const textPane = document.getElementById('text-container');
-        if (textPane) textPane.scrollTo({ top: 0, behavior: 'smooth' });
+        scrollStoryToBottom(1400);
     });
 }
 
@@ -251,161 +650,232 @@ function continueStory() {
 function typewriterEffect(text, element, speed = 50) {
     let index = 0;
     element.innerText = "";
-    
     const type = () => {
         if (index < text.length) {
             element.innerText += text[index++];
             setTimeout(type, speed);
-        }
+                    }
     };
     type();
-}
+                }
 
 function toggleTypewriter() {
-    typewriterEnabled = !typewriterEnabled;
+    settings.typewriterEnabled = !settings.typewriterEnabled;
     const btn = document.getElementById('typewriter-toggle');
     if (btn) {
-        btn.innerText = typewriterEnabled ? "⌨️ Typewriter ON" : "⌨️ Typewriter OFF";
+        btn.innerText = settings.typewriterEnabled ? "⌨️ Typewriter ON" : "⌨️ Typewriter OFF";
     }
-    localStorage.setItem('typewriter_enabled', typewriterEnabled);
+    localStorage.setItem('typewriter_enabled', settings.typewriterEnabled);
+}
+
+function getOutcomeToneFromTags(tags) {
+    const normalized = (tags || []).map(tag => String(tag || '').replace(/^#/, '').trim().toLowerCase());
+    if (normalized.includes('bad')) return 'bad';
+    if (normalized.includes('good')) return 'good';
+    return 'neutral';
+}
+
+function applyOutcomeToneToParagraph(paragraph, tone) {
+    if (!paragraph) return;
+    paragraph.classList.remove('outcome-good', 'outcome-bad', 'outcome-neutral');
+    paragraph.classList.add(`outcome-${tone || 'neutral'}`);
+}
+
+function applyOutcomeToneToFragment(fragment, tone) {
+    if (!fragment || !fragment.childNodes) return;
+    Array.from(fragment.childNodes).forEach(node => {
+        if (node && node.tagName && node.tagName.toLowerCase() === 'p' && node.classList.contains('outcome-text')) {
+            applyOutcomeToneToParagraph(node, tone);
+        }
+    });
 }
 
 function renderChoices() {
     choicesContainer.innerHTML = "";
     if (story.currentChoices.length === 0 && !story.canContinue) {
+        // end of story reached
+        if (!storyReachedEnding) {
+            const congrats = document.createElement('p');
+            congrats.className = 'congrats-msg';
+            congrats.innerText = "🎉 Congratulations! You've reached the end of this adventure.";
+            storyContainer.appendChild(congrats);
+
+            const saveHint = document.createElement('p');
+            saveHint.className = 'end-save-hint';
+            saveHint.innerText = "You can now save a complete PDF log of your journey.";
+            storyContainer.appendChild(saveHint);
+
+            addFlowEntry('ending', {
+                text: 'Story ended. Export option displayed to save the full adventure.'
+            });
+            storyReachedEnding = true;
+        }
+
+        // Save adventure button
+        const saveBtn = document.createElement('button');
+        saveBtn.id = 'save-adventure-pdf-btn';
+        saveBtn.className = 'choice-btn primary';
+        saveBtn.innerText = "📜 Save Adventure (PDF)";
+        saveBtn.onclick = downloadStoryLog;
+        choicesContainer.appendChild(saveBtn);
+
+        // Return to menu button
         const endBtn = document.createElement('button');
         endBtn.className = 'choice-btn';
-        endBtn.innerText = "The End - Return to Menu";
+        endBtn.innerText = "🏠 Return to Menu";
         endBtn.onclick = () => location.reload();
         choicesContainer.appendChild(endBtn);
         return;
     }
     story.currentChoices.forEach(choice => {
+        let isBad = false;
+        let isExquisite = false;
         const button = document.createElement('button');
         button.innerText = choice.text;
         button.className = "choice-btn";
         if (choice.tags && choice.tags.length > 0) button.setAttribute('data-tags', (choice.tags || []).join('|'));
-        
-        // --- FIX 1: Detect Button Type BEFORE clicking ---
-        // We check the tags on the choice itself, and fallback to the text
-        let isBad = false;
-        let isExquisite = false;
-        
-        // Check Ink Tags (if available)
-        const cTags = (choice.tags || []).map(t => t.toLowerCase());
-        if (cTags.some(t => t.includes('bad') || t.includes('death'))) isBad = true;
-        if (cTags.some(t => t.includes('exquisite') || t.includes('reward'))) isExquisite = true;
-        
-        // Fallback: Check Choice Text (Keywords)
-        const lowerText = choice.text.toLowerCase();
+        const choiceTone = getOutcomeToneFromTags(choice.tags || []);
+        if (choiceTone === 'bad') isBad = true;
+        const lowerText = (choice.text || '').toLowerCase();
         if (lowerText.includes('bad')) isBad = true;
         if (lowerText.includes('exquisite')) isExquisite = true;
 
         button.onclick = () => {
+            Array.from(choicesContainer.children).forEach(btn => {
+                if (btn !== button) {
+                    btn.style.display = 'none';
+                } else {
+                    btn.classList.add('selected-choice');
+                    btn.disabled = true;
+                }
+            });
+
+            const selectedChoiceParagraph = document.createElement('p');
+            selectedChoiceParagraph.className = 'player-choice-line';
+            selectedChoiceParagraph.innerText = `→ ${choice.text}`;
+            storyContainer.appendChild(selectedChoiceParagraph);
+            addFlowEntry('choice', {
+                text: String(choice.text || '').trim(),
+                tags: normalizeTags(choice.tags || [])
+            });
+            scrollStoryToBottom(1000);
+
             // 1. Commit Choice
             story.ChooseChoiceIndex(choice.index);
-            // React to choice-level tags immediately (e.g., SFX on choice)
             if (choice.tags && choice.tags.length > 0) handleTags(choice.tags);
             let nextSceneBuffer = null;
             const outcomeFragment = document.createDocumentFragment();
+            let outcomeTone = 'neutral';
 
             // 3. Process Outcome Text
             while (story.canContinue) {
                 const text = story.Continue();
                 const tags = story.currentTags || [];
+                const taggedTone = getOutcomeToneFromTags(tags);
+                if (taggedTone !== 'neutral') {
+                    outcomeTone = taggedTone;
+                    applyOutcomeToneToFragment(outcomeFragment, outcomeTone);
+                }
 
-                // --- FIX 3: Aggressive Text Filter ---
-                // Ignore system/marker lines like "Fate frowns" and our outcome markers
+                const normalizedText = String(text || '').trim().replace(/^#/, '').trim().toLowerCase();
+                if (normalizedText === 'good' || normalizedText === 'bad') {
+                    outcomeTone = normalizedText;
+                    applyOutcomeToneToFragment(outcomeFragment, outcomeTone);
+                    continue;
+                }
+
                 const _lower = text.toLowerCase();
                 if (_lower.includes("fate frowns") || _lower.includes("bad") || _lower.includes("good")) {
                     continue;
                 }
-
-                // --- FIX 2: Detect Scene Transition ---
                 if (isSceneTransition(tags)) {
-                    // STOP! We hit the Next Scene. Save it for the button click.
-                    // If the chunk is empty (e.g. IMAGE tag appears before the narration text),
-                    // attempt to pull the next chunk from the story so we capture the first paragraph.
                     if (text.trim().length === 0 && story.canContinue) {
-
                         const nextChunk = story.Continue();
                         const nextTags = story.currentTags || [];
-
-                        // Prefer the pulled chunk as the first narration if it's non-empty
                         const effectiveText = (nextChunk && nextChunk.trim().length > 0) ? nextChunk : text;
                         nextSceneBuffer = { text: effectiveText, tags: (tags || []).concat(nextTags) };
                     } else {
                         nextSceneBuffer = { text, tags };
                     }
-
-                    break; 
+                    break;
                 } else {
-                    // Render Outcome Text
                     if (text.trim().length > 0) {
                         const p = document.createElement('p');
                         p.innerText = text;
-                        p.className = "outcome-text";
+                        p.className = `outcome-text outcome-${outcomeTone}`;
                         if (tags && tags.length > 0) p.setAttribute('data-tags', tags.join('|'));
                         outcomeFragment.appendChild(p);
+                        addFlowEntry('outcome', {
+                            text: String(text || '').trim(),
+                            tone: outcomeTone,
+                            tags: normalizeTags(tags)
+                        });
                     }
-                    handleTags(tags); 
+                    handleTags(tags);
                 }
             }
 
+            updateTraitsPanel(true);
+
             // 4. Create "Proceed" Button
+            const hasBadOutcome = isBad || outcomeTone === 'bad';
             let btnText = "Proceed to next scene";
             if (isExquisite) btnText = "Excellent choice - proceed to next scene";
-            if (isBad) btnText = "Your fate is unknown to the author - choose another outcome";
+            if (hasBadOutcome) btnText = "This path leads you astray. Try another choice.";
 
             const proceedBtn = document.createElement('button');
             proceedBtn.className = "choice-btn primary";
             proceedBtn.innerText = btnText;
             proceedBtn.style.width = "100%";
             proceedBtn.style.marginTop = "2rem";
-            
             if (isExquisite) {
                 proceedBtn.style.borderColor = "gold";
                 proceedBtn.style.color = "gold";
             }
-            if (isBad) {
-                proceedBtn.style.borderColor = "red";
-                proceedBtn.style.color = "#ff6b6b";
+            if (hasBadOutcome) {
+                proceedBtn.style.borderColor = "black";
+                proceedBtn.style.color = "#000000";
             }
-            // Propagate the originating choice's tags to the proceed button
             if (choice.tags && choice.tags.length > 0) proceedBtn.setAttribute('data-choice-tags', (choice.tags || []).join('|'));
 
             proceedBtn.onclick = () => {
-                // --- FIX 2: Only clear screen if we have a NEW scene ---
                 if (nextSceneBuffer) {
-
-                    storyContainer.innerHTML = ""; 
-                    
-                    // Render the first line of the new scene (if any)
                     if (nextSceneBuffer.text && nextSceneBuffer.text.trim().length > 0) {
+                        const sceneMeta = getSceneMetadataFromTags(nextSceneBuffer.tags || []);
+                        if (isSceneTransition(nextSceneBuffer.tags || [])) {
+                            renderSceneHeaderIfNeeded(sceneMeta.sceneKey, sceneMeta.sceneTitle);
+                        }
                         const p = document.createElement('p');
-                        p.innerText = nextSceneBuffer.text;
+                        if (settings.typewriterEnabled) {
+                            typewriterEffect(nextSceneBuffer.text, p, settings.typewriterSpeed);
+                        } else {
+                            p.innerText = nextSceneBuffer.text;
+                        }
                         storyContainer.appendChild(p);
-
-                    } else {
-
+                        addFlowEntry(isSceneTransition(nextSceneBuffer.tags || []) ? 'scene' : 'narration', {
+                            text: String(nextSceneBuffer.text || '').trim(),
+                            tags: normalizeTags(nextSceneBuffer.tags || []),
+                            image: sceneMeta.imageFile,
+                            sceneKey: sceneMeta.sceneKey,
+                            sceneTitle: sceneMeta.sceneTitle
+                        });
                     }
-                    handleTags(nextSceneBuffer.tags); 
+                    handleTags(nextSceneBuffer.tags);
                 }
-                // If nextSceneBuffer is null, we just continue (showing choices below the current text)
 
+                proceedBtn.remove();
                 continueStory();
             };
 
             // 5. If we captured a scene transition but the fragment contains the first paragraph
-            // move it into nextSceneBuffer so it is shown after the Proceed button (not accidentally cleared).
             if (nextSceneBuffer && (!nextSceneBuffer.text || nextSceneBuffer.text.trim().length === 0)) {
                 const lastNode = outcomeFragment.lastChild;
                 if (lastNode && lastNode.tagName && lastNode.tagName.toLowerCase() === 'p') {
                     const lastText = lastNode.innerText || '';
                     if (lastText.trim().length > 0) {
-                        // Move tags if present on the moved paragraph
                         const movedTags = lastNode.getAttribute('data-tags');
                         nextSceneBuffer.text = lastText;
+                        removeLastOutcomeFlowEntryByText(lastText);
                         if (movedTags) {
                             const movedArr = (movedTags || '').split('|').filter(Boolean);
                             nextSceneBuffer.tags = (nextSceneBuffer.tags || []).concat(movedArr);
@@ -415,14 +885,12 @@ function renderChoices() {
                 }
             }
 
-            // 6. Append Outcome & Button
             storyContainer.appendChild(outcomeFragment);
+            choicesContainer.innerHTML = "";
             choicesContainer.appendChild(proceedBtn);
 
-            // Scroll to bottom
             requestAnimationFrame(() => {
-                const textPane = document.getElementById('text-container');
-                if (textPane) textPane.scrollTo({ top: textPane.scrollHeight, behavior: 'smooth' });
+                scrollStoryToBottom(1300);
             });
         };
         choicesContainer.appendChild(button);
@@ -471,20 +939,16 @@ const audioManager = {
     },
     
     play(audioFile) {
-        const audioPath = `/data/output/${currentProject}/audio/${audioFile}`;
-        
+        const audioPath = getAssetPath('audio', audioFile);
         if (this.currentTrack === audioFile) return; // Already playing
-        
         // Fade out old track
         if (this.audioElement && this.audioElement.src) {
             this.audioElement.volume = 0;
         }
-        
         // Fade in new track
         this.audioElement.src = audioPath;
         this.audioElement.volume = 0;
         this.audioElement.play().catch(e => console.log("Audio play blocked:", e));
-        
         // Fade in over 2 seconds
         let vol = 0;
         const fadeInterval = setInterval(() => {
@@ -492,7 +956,6 @@ const audioManager = {
             this.audioElement.volume = vol;
             if (vol >= 0.6) clearInterval(fadeInterval);
         }, 200);
-        
         this.currentTrack = audioFile;
     },
     
@@ -505,6 +968,58 @@ const audioManager = {
     }
 };
 
+const traitSoundManager = {
+    audioContext: null,
+
+    init() {
+        if (this.audioContext) return;
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        try {
+            this.audioContext = new AudioCtx();
+        } catch (e) {
+            console.log("Trait SFX unavailable:", e);
+        }
+    },
+
+    playTone(frequency, durationMs = 110, gainLevel = 0.05, delaySec = 0) {
+        if (!this.audioContext) return;
+        if (this.audioContext.state === 'suspended') {
+            this.audioContext.resume().catch(() => {});
+        }
+
+        const now = this.audioContext.currentTime + delaySec;
+        const oscillator = this.audioContext.createOscillator();
+        const gain = this.audioContext.createGain();
+
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(frequency, now);
+
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(gainLevel, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + (durationMs / 1000));
+
+        oscillator.connect(gain);
+        gain.connect(this.audioContext.destination);
+        oscillator.start(now);
+        oscillator.stop(now + (durationMs / 1000) + 0.02);
+    },
+
+    playDelta(delta) {
+        if (!delta) return;
+        const magnitude = Math.min(Math.abs(delta), 20);
+        const loudness = 0.035 + (magnitude / 20) * 0.025;
+
+        if (delta > 0) {
+            this.playTone(590, 90, loudness, 0);
+            this.playTone(760, 110, loudness, 0.07);
+        } else {
+            this.playTone(350, 140, loudness, 0);
+            this.playTone(280, 120, loudness * 0.9, 0.09);
+        }
+    }
+};
+
 
 
 function handleTags(tags) {
@@ -513,30 +1028,24 @@ function handleTags(tags) {
     tags.forEach(tag => {
         if (tag.startsWith("IMAGE:")) {
             const fileName = tag.split(":")[1].trim();
-            const fullPath = `/data/output/${currentProject}/assets/${fileName}`;
-            
+            const fullPath = getAssetPath('assets', fileName);
+            addFlowEntry('image', {
+                imageFile: fileName,
+                imagePath: fullPath,
+                imageType: fileName.includes("_reward") ? 'reward' : 'scene'
+            });
             if (imageElement) {
                 // Preload image to prevent "pop-in"
                 const tempImg = new Image();
                 tempImg.src = fullPath;
                 tempImg.onload = () => {
                     imageElement.style.opacity = 0; // Fade out old (start transition)
-                    
-                    // Wait for CSS fade-out (300ms), then swap source and fade in
                     setTimeout(() => {
                         imageElement.src = fullPath;
                         imageElement.style.opacity = 1; 
                     }, 300);
-
-                    // Optional: Scroll text if needed (kept from your code)
                     requestAnimationFrame(() => {
-                        const textPane = document.getElementById('text-container');
-                        if (textPane) {
-                            textPane.scrollTo({
-                                top: textPane.scrollHeight,
-                                behavior: 'smooth'
-                            });
-                        }
+                        scrollStoryToBottom(1200);
                     });
                 };
             }
@@ -550,11 +1059,16 @@ function handleTags(tags) {
             }
 
             if (isReward) {
-                imageElement.classList.add("reward-pulse");
-                rewardBanner.style.display = "block";
+                 imageElement.classList.remove("reward-pulse");
+                 imageElement.classList.add("reward-fadein");
+                 rewardBanner.style.display = "block";
+                 // Remove fade-in class after animation completes
+                 setTimeout(() => {
+                    imageElement.classList.remove("reward-fadein");
+                 }, 3000);
             } else {
-                imageElement.classList.remove("reward-pulse");
-                rewardBanner.style.display = "none";
+                 imageElement.classList.remove("reward-pulse");
+                 rewardBanner.style.display = "none";
             }
         } else if (tag.startsWith("AMBIENCE:") || tag.startsWith("AUDIO:")) {
             // Audio tag format: # AMBIENCE: rain.mp3 or # AUDIO: forest_ambient
@@ -572,13 +1086,14 @@ function handleTags(tags) {
         }
         });
 }
+
+
            
 // --- GALLERY LOGIC ---
 function toggleGallery(show) {
     document.getElementById('gallery-overlay').style.display = show ? 'flex' : 'none';
     if (show) {
         currentProject = document.getElementById('project-selector').value;
-        const assetsBase = `/data/output/assets/${currentProject}/`;
         const storedArt = localStorage.getItem(`unlocked_art_${currentProject}`);
         unlockedImages = storedArt ? JSON.parse(storedArt) : { scenes: [], rewards: [] };
         renderGallery();
@@ -607,7 +1122,7 @@ function renderGallery() {
 
     images.forEach(fileName => {
         const img = document.createElement('img');
-        img.src = `/data/output/${currentProject}/assets/${fileName}`;
+        img.src = getAssetPath('assets', fileName);
         img.className = "gallery-thumb";
         img.title = fileName;
         grid.appendChild(img);
@@ -625,3 +1140,34 @@ function isSceneTransition(tags) {
               !tag.includes('ITEM');
     });
 }
+
+// --- EXPORT / SAVE LOG ---
+
+function downloadStoryLog() {
+    if (!story) return;
+    if (typeof window.generateAdventurePdf !== 'function') {
+        alert('PDF export is unavailable. Please ensure pdf_export.js is loaded.');
+        return;
+    }
+
+    const saveButton = document.getElementById('save-adventure-pdf-btn');
+    const originalLabel = saveButton ? saveButton.innerText : '';
+    if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.innerText = 'Preparing PDF...';
+    }
+
+    const payload = buildAdventureExportPayload();
+    window.generateAdventurePdf(payload)
+        .catch(err => {
+            console.error('Failed to generate PDF export:', err);
+            alert('Could not generate PDF export. See console for details.');
+        })
+        .finally(() => {
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.innerText = originalLabel || '📜 Save Adventure (PDF)';
+            }
+        });
+}
+

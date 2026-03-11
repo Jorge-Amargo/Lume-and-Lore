@@ -8,7 +8,7 @@ body, html {
 }
 
 #story-text p {
-    font-size: 1.5rem; /* Unified size */
+    font-size: 1.8rem; /* Enlarged scene text */
     line-height: 1.6;
     margin-bottom: 1.5rem;
     animation: fadeInText 1.2s ease-out forwards;
@@ -18,9 +18,22 @@ body, html {
     to { opacity: 1; filter: blur(0); transform: translateY(0); }
 }
 .outcome-text {
-    color: #ffd700; /* Gold-ish tint to distinguish it as an outcome */
+    color: #ffffff;
     font-style: italic;
+    font-size: 1.8rem;
     animation: fadeInText 0.5s ease-out forwards;
+}
+
+.outcome-text.outcome-good {
+    color: #ffd700;
+}
+
+.outcome-text.outcome-bad {
+    color: #ff4d4d;
+}
+
+.outcome-text.outcome-neutral {
+    color: #ffffff;
 }
 
 @keyframes slowFadeIn {
@@ -87,6 +100,7 @@ body, html {
 
 #image-container {
     grid-area: v-image;
+    position: relative;
     height: 100%;
     width: 100%;
     background: #000;
@@ -104,6 +118,16 @@ body, html {
     box-shadow: 0 0 25px rgba(255, 215, 0, 0.6); /* Gold glow */
     border: 2px solid #ffd700 !important;
     animation: pulse-gold 2s infinite;
+}
+
+/* Simple fade-in effect for reward images */
+.reward-fadein {
+    animation: fadein 1s;
+}
+
+@keyframes fadein {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 @keyframes pulse-gold {
@@ -157,10 +181,135 @@ body, html {
     max-width: none !important;
 }
 
+.scene-header {
+    margin: 0.75rem 0 0.5rem;
+    color: #f0d78f;
+    font-size: 1.9rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: none;
+}
+
+.player-choice-line {
+    color: #d8c18d;
+    font-style: italic;
+    margin-top: 0.5rem !important;
+    margin-bottom: 1.25rem !important;
+    opacity: 0.95;
+}
+
+#traits-panel {
+    display: none;
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 20;
+    width: min(320px, calc(100% - 170px));
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+}
+
+.image-overlay-actions {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    gap: 10px;
+    z-index: 25;
+}
+
+.trait-card {
+    background: linear-gradient(135deg, rgba(18, 18, 18, 0.92) 0%, rgba(30, 30, 30, 0.92) 100%);
+    border: 1px solid #3b3b3b;
+    border-radius: 10px;
+    padding: 0.7rem 0.9rem;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(2px);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.trait-card:hover {
+    transform: translateY(-2px);
+    border-color: #6a5a2a;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.trait-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.45rem;
+}
+
+.trait-name {
+    color: #ead9b5;
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+}
+
+.trait-value-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.trait-value {
+    color: #f7f2e7;
+    font-weight: bold;
+    font-size: 1rem;
+    min-width: 2.2ch;
+    text-align: right;
+}
+
+.trait-delta {
+    font-size: 0.86rem;
+    font-weight: bold;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.trait-delta.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.trait-delta.up { color: #66d39b; }
+.trait-delta.down { color: #ff8a8a; }
+
+.trait-bar {
+    position: relative;
+    width: 100%;
+    height: 9px;
+    border-radius: 999px;
+    background: #101010;
+    border: 1px solid #2e2e2e;
+    overflow: hidden;
+}
+
+.trait-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    transition: width 0.45s ease;
+    background: linear-gradient(90deg, #b38835 0%, #ffd46f 100%);
+}
+
+.trait-card.trait-up {
+    border-color: #3aa86f;
+    box-shadow: 0 0 0 2px rgba(58, 168, 111, 0.22), 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.trait-card.trait-down {
+    border-color: #b54e4e;
+    box-shadow: 0 0 0 2px rgba(181, 78, 78, 0.2), 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
 #choices-container {
     grid-area: v-choices;
     width: 100%;
     height: 100%;
+    min-height: 0;
     padding: 2rem 3rem;
     display: flex;
     flex-direction: column;
@@ -172,6 +321,22 @@ body, html {
     box-sizing: border-box;
 }
 
+/* end-of-story congratulations text */
+.congrats-msg {
+    font-size: 2rem;
+    text-align: center;
+    margin: 1.5rem 0;
+    color: #aaffaa;
+    font-weight: bold;
+}
+
+.end-save-hint {
+    text-align: center;
+    margin: 0 0 1.5rem 0;
+    color: #d8c18d;
+    font-size: 1.1rem;
+}
+
 .choice-btn {
     padding: 12px 15px;
     background: #2a2a2a;
@@ -180,7 +345,7 @@ body, html {
     border-radius: 4px;
     cursor: pointer;
     font-family: 'Garamond', 'Georgia', serif;
-    font-size: 1.5rem; /* Unified size (Same as story text) */
+    font-size: 1.8rem; /* Enlarged choices text */
     transition: all 0.3s ease;
     display: block; 
     width: 100%; 
@@ -195,6 +360,18 @@ body, html {
     transform: translateX(-2px);
     box-shadow: 0 4px 12px rgba(255, 215, 0, 0.2);
 }
+
+/* disabled buttons should not highlight or move on hover */
+.choice-btn:disabled,
+.choice-btn:disabled:hover {
+    background: #2a2a2a;
+    color: #888;
+    border-color: #444;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
 
 /* Overlay Screens */
 .overlay {
@@ -219,8 +396,15 @@ body, html {
     padding: 15px; border-radius: 5px; border: none; font-weight: bold; cursor: pointer; font-size: 1rem;
 }
 .primary { background: gold; color: black; }
-.secondary { background: #333; color: white; }
-.tertiary { background: transparent; color: gold; border: 1px solid gold; }
+    /* selected choice stays gold even when disabled */
+    .choice-btn.selected-choice,
+    .choice-btn.selected-choice:disabled {
+        background: gold !important;
+        color: #000 !important;
+        border-color: gold !important;
+        transform: translateX(-2px);
+        box-shadow: 0 4px 12px rgba(255, 215, 0, 0.2);
+    }
 
 /* Gallery Logic */
 .grid-container {
@@ -286,11 +470,18 @@ body, html {
     .choice-btn {
         width: 100%;
         margin: 8px 0;
-        font-size: 1.1rem;
+        font-size: 1.3rem;
+    }
+
+    #traits-panel {
+        left: 12px;
+        top: 12px;
+        width: min(260px, calc(100% - 130px));
+        gap: 0.65rem;
     }
     
     #story-text p {
-        font-size: 1.2rem;
+        font-size: 1.4rem;
         line-height: 1.5;
         margin-bottom: 1rem;
     }
@@ -306,7 +497,7 @@ body, html {
     }
     
     #story-text p {
-        font-size: 1.1rem;
+        font-size: 1.3rem;
     }
     
     .menu-content h1 {
