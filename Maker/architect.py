@@ -258,6 +258,104 @@ class AutonomousArchitect:
         resp = self.chat.send_message(prompt)
         return self._parse_json(resp.text)
 
+    def generate_story_pack(self, protagonist_name=None, scene_count=12):
+        """Generates the full adventure in one call and returns all scenes as JSON."""
+        self._ensure_chat_ready()
+        scene_count = max(1, int(scene_count))
+        active_traits = [
+            re.sub(r'\W+', '_', v['label'].lower())
+            for _, v in self.config.get("traits", {}).items()
+            if v.get('label')
+        ]
+        traits_hint = ", ".join(active_traits) if active_traits else "sanity, health, luck"
+        character_instruction = (
+            f"The player has chosen to play as: {protagonist_name}."
+            if protagonist_name
+            else "The player will play as the most fitting protagonist from the book context."
+        )
+
+        prompt = f"""
+        TASK: Generate a COMPLETE interactive adventure in ONE output.
+        {character_instruction}
+
+        HARD REQUIREMENTS:
+        1. Return EXACTLY {scene_count} scenes in a top-level JSON object.
+        2. Every scene except the last must contain exactly 3 choices (golden, exquisite, bad).
+        3. The last scene must be the finale: include an 'ending' text and set 'choices' to [].
+        4. Keep consistent narrative continuity from scene 1 to scene {scene_count}.
+        5. Use ONLY these trait variable names in trait_changes: {traits_hint}
+        6. trait_changes values must be integers between -20 and 20.
+        7. scene_id values must be snake_case and unique.
+
+        CRITICAL MULTI-LANGUAGE REQUIREMENT:
+        - Write 'scene_text', 'ending', 'choices.text', and 'choices.outcome_text' in the SAME LANGUAGE as the book text.
+        - Write 'visual_prompt', 'audio_prompt', and 'reward_visual_prompt' in ENGLISH.
+
+        RETURN JSON ONLY with this exact structure:
+        {{
+          "meta": {{
+            "protagonist": "...",
+            "target_scene_count": {scene_count}
+          }},
+          "scenes": [
+            {{
+              "scene_id": "...",
+              "scene_text": "...",
+              "ending": "Optional final paragraph only on last scene",
+              "visual_prompt": "...",
+              "audio_prompt": "...",
+              "choices": [
+                {{"text": "...", "type": "golden", "outcome_text": "...", "trait_changes": {{}}}},
+                {{"text": "...", "type": "exquisite", "outcome_text": "...", "reward_visual_prompt": "...", "trait_changes": {{}}}},
+                {{"text": "...", "type": "bad", "outcome_text": "...", "trait_changes": {{}}}}
+              ]
+            }}
+          ]
+        }}
+        """
+
+        resp = self.chat.send_message(prompt)
+        pack = self._parse_json(resp.text)
+        if not isinstance(pack, dict):
+            return None
+
+        scenes = pack.get("scenes", [])
+        if not isinstance(scenes, list):
+            return None
+
+        # Normalize scene structure so downstream editor logic is stable.
+        normalized = []
+        for i, scene in enumerate(scenes[:scene_count]):
+            if not isinstance(scene, dict):
+                continue
+            scene = self._sanitize_response(scene)
+            if "scene_id" not in scene or not scene.get("scene_id"):
+                scene["scene_id"] = f"scene_{i+1}"
+            if "scene_text" not in scene:
+                scene["scene_text"] = ""
+            if "visual_prompt" not in scene:
+                scene["visual_prompt"] = ""
+            if "audio_prompt" not in scene:
+                scene["audio_prompt"] = ""
+            if "choices" not in scene or not isinstance(scene.get("choices"), list):
+                scene["choices"] = []
+            normalized.append(scene)
+
+        if not normalized:
+            return None
+
+        # Ensure the final scene is treated as finale in the local editor pipeline.
+        normalized[-1]["choices"] = []
+        if not normalized[-1].get("ending"):
+            normalized[-1]["ending"] = normalized[-1].get("scene_text", "")
+
+        pack["scenes"] = normalized
+        pack["meta"] = pack.get("meta", {})
+        pack["meta"]["target_scene_count"] = len(normalized)
+        if protagonist_name and not pack["meta"].get("protagonist"):
+            pack["meta"]["protagonist"] = protagonist_name
+        return pack
+
     def resume_session(self, content_to_send):
         """Verbesserter Resume-Handshake."""
         self._ensure_chat_ready()

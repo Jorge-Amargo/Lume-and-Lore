@@ -129,9 +129,15 @@ def render_sidebar_tabs(current_config, weaver, available_books):
             
             if "last_book_sel" not in st.session_state or st.session_state.last_book_sel != current_book_filename:
                 new_title = os.path.splitext(current_book_filename)[0].replace('_', ' ')
-                st.session_state["c_title"] = new_title
+                previous_filename = current_config.get("book_filename")
+
+                # Only auto-default title from filename when the user actually switches
+                # to another source text. This preserves manually edited titles across
+                # app restarts where local_sel is unchanged.
+                if previous_filename != current_book_filename:
+                    st.session_state["c_title"] = new_title
+                    current_config["title"] = new_title
                 st.session_state["last_book_sel"] = current_book_filename
-                current_config["title"] = new_title
                 current_config["book_id"] = "".join(x for x in os.path.splitext(current_book_filename)[0] if x.isalnum() or x in "_-")
                 current_config["book_filename"] = current_book_filename
                 DashboardUtils.save_config(current_config)
@@ -261,7 +267,9 @@ def render_sidebar_tabs(current_config, weaver, available_books):
 def render_art_selection(scene, current_config, weaver, current_dir):
     """Handles the UI and file logic for selecting Scene Art, Reward Art, and Audio."""
     base_id = scene.get('scene_id', 'unknown')
-    audio_dir = os.path.join(current_dir, "..", "data", "output", current_config['book_id'], "audio")
+    project_dir = DashboardUtils.get_project_output_dir(book_id=current_config.get('book_id'))
+    project_folder = os.path.basename(project_dir)
+    audio_dir = os.path.join(project_dir, "audio")
     final_main_img = os.path.join(weaver.output_dir, f"{base_id}_main.png")
     final_sound = os.path.join(audio_dir, f"{base_id}.mp3")
     
@@ -352,7 +360,7 @@ def render_art_selection(scene, current_config, weaver, current_dir):
             sw = SoundWeaver()
             with st.spinner(f"🎧 Composing {snd_count} Audio Candidates..."):
                 snds = sw.generate_candidates(
-                    current_config['book_id'], base_id, 
+                    project_folder, base_id, 
                     scene.get('audio_prompt', scene['visual_prompt']), 
                     count=snd_count,
                     length_seconds=current_config['generation'].get('sound_length_seconds', 5),

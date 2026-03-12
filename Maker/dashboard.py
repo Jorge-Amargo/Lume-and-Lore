@@ -65,6 +65,7 @@ active_book_id = current_config.get("book_id", "unknown_book")
 active_book_filename = current_config.get("book_filename", f"{active_book_id}.txt")
 book_path = os.path.join(BOOKS_DIR, active_book_filename)
 title = current_config.get("title", "New Adventure")
+active_project_dir = DashboardUtils.get_project_output_dir(book_id=active_book_id, title=title)
 
 # Check for existing projects for this book
 output_dir = os.path.join(current_dir, "..", "data", "output")
@@ -148,9 +149,14 @@ if not st.session_state.engine_ready:
     with col1:
         st.markdown("#### 🆕 New Project")
         st.caption("Erase history and start from the Intro.")
+        one_shot_mode = True
+        scene_count_input = int(current_config.get("generation", {}).get("target_scene_count", 12))
+        if scene_count_input >= 40:
+            st.warning("Large one-shot outputs can fail or get truncated. Continue only if you accept retry risk.")
+        st.caption(f"Using Scenes per Book from config: {scene_count_input}")
         
         # Check if old files exist for this book
-        output_dir = os.path.join(current_dir, "..", "data", "output", active_book_id)
+        output_dir = active_project_dir
         assets_dir = os.path.join(output_dir, "assets")
         audio_dir = os.path.join(output_dir, "audio")
         old_files_exist = False
@@ -176,15 +182,25 @@ if not st.session_state.engine_ready:
                     weaver = VisualWeaver()
                     print(f"ℹ️ VisualWeaver SD model on Start New Adventure: {getattr(weaver, 'sd_model', None)}")
                     st.session_state.weaver = weaver
+                    st.session_state.active_project_path = active_project_dir
                     target_ink_path = os.path.join(weaver.output_dir, "adventure.ink")
                     source_book_path = os.path.join(BOOKS_DIR, st.session_state.get("local_sel", current_config.get("book_filename")))
                     st.session_state.smith = InkSmith(current_config["book_id"])
                     st.session_state.architect = AutonomousArchitect(source_book_path)
+                    st.session_state.story_pack_mode = bool(one_shot_mode)
+                    st.session_state.story_pack_target_scenes = int(scene_count_input)
+                    st.session_state.story_pack_index = 0
+                    st.session_state.story_pack_total = 0
                     st.session_state["selected_protagonist"] = None
-                    existing_scenes = st.session_state.smith.count_existing_scenes()
-                    st.session_state.architect.set_scene_number(existing_scenes)
-                    content_to_send = st.session_state.smith.get_full_script()
-                    response = st.session_state.architect.resume_session(content_to_send)
+                    st.session_state["character_selected"] = False
+                    st.session_state["book_pitch"] = None
+                    st.session_state.node_id = "intro"
+                    st.session_state.current_step = "narrative"
+                    st.session_state.scene_data = None
+                    st.session_state.generated_images = []
+                    st.session_state.picking_reward = False
+                    st.session_state.adventure_finished = False
+                    st.session_state.force_next_ending = False
                     # Reset all session state image/audio keys
                     for key in list(st.session_state.keys()):
                         if 'generated_images_' in key or 'generated_sfx_' in key or 'scene_images_completed_' in key or 'awaiting_sound_' in key or 'reward_selected_' in key or 'picking_reward' in key:
@@ -199,15 +215,31 @@ if not st.session_state.engine_ready:
             # No old files, proceed normally
             # Unique Key: btn_new_project
             if st.button("🚀 Start New Adventure    ", type="primary", use_container_width=True, key="btn_new_project"):
+                DashboardUtils.cleanup_old_adventure_files(active_book_id, confirm_first=False)
                 weaver = VisualWeaver()
                 print(f"ℹ️ VisualWeaver SD model on Start New Adventure: {getattr(weaver, 'sd_model', None)}")
                 st.session_state.weaver = weaver
+                st.session_state.active_project_path = active_project_dir
                 # Setup Paths
                 target_ink_path = os.path.join(weaver.output_dir, "adventure.ink")
                 source_book_path = os.path.join(BOOKS_DIR, st.session_state.get("local_sel", current_config.get("book_filename")))
                 # Initialize Workers
                 st.session_state.smith = InkSmith(current_config["book_id"])
                 st.session_state.architect = AutonomousArchitect(source_book_path)
+                st.session_state.story_pack_mode = bool(one_shot_mode)
+                st.session_state.story_pack_target_scenes = int(scene_count_input)
+                st.session_state.story_pack_index = 0
+                st.session_state.story_pack_total = 0
+                st.session_state["selected_protagonist"] = None
+                st.session_state["character_selected"] = False
+                st.session_state["book_pitch"] = None
+                st.session_state.node_id = "intro"
+                st.session_state.current_step = "narrative"
+                st.session_state.scene_data = None
+                st.session_state.generated_images = []
+                st.session_state.picking_reward = False
+                st.session_state.adventure_finished = False
+                st.session_state.force_next_ending = False
                 
                 st.session_state.engine_ready = True
                 st.rerun()
@@ -220,8 +252,7 @@ if not st.session_state.engine_ready:
         st.caption("Continue from the last saved .ink file.")
         # check the save file directly; do not instantiate InkSmith (which would
         # create folders) unless the user actually resumes.
-        ink_path = os.path.join(current_dir, "..", "data", "output",
-                                current_config["book_id"], "adventure.ink")
+        ink_path = os.path.join(active_project_dir, "adventure.ink")
         last_node = get_resume_state(ink_path)
         
         if last_node:
@@ -239,8 +270,19 @@ if not st.session_state.engine_ready:
                 try:
                     with st.spinner("🧠 Waking up the Architect (connecting to Google)..."):
                         # 1. Initialize Components
+                        st.session_state.active_project_path = active_project_dir
                         st.session_state.smith = InkSmith(current_config["book_id"])
                         st.session_state.architect = AutonomousArchitect(source_book_path)
+                        pack_data = DashboardUtils.load_story_pack(current_config["book_id"])
+                        if pack_data and isinstance(pack_data.get("scenes"), list) and pack_data.get("scenes"):
+                            next_idx = int(pack_data.get("progress", {}).get("next_index", 0))
+                            st.session_state.story_pack_mode = next_idx < len(pack_data.get("scenes", []))
+                            st.session_state.story_pack_index = next_idx
+                            st.session_state.story_pack_total = len(pack_data.get("scenes", []))
+                        else:
+                            st.session_state.story_pack_mode = False
+                            st.session_state.story_pack_index = 0
+                            st.session_state.story_pack_total = 0
                         
                         # 2. Sync Scene Counter
                         existing_count = st.session_state.smith.count_existing_scenes()
@@ -334,8 +376,20 @@ else:
     # Only grab workers from state if the engine is actually running
     if st.session_state.engine_ready:
         architect = st.session_state.architect
-        curr = architect.current_scene_num
-        targ = architect.target_scene_count
+        if st.session_state.get("story_pack_mode"):
+            pack_data = DashboardUtils.load_story_pack(current_config["book_id"])
+            if pack_data:
+                targ = len(pack_data.get("scenes", []))
+                next_idx = int(pack_data.get("progress", {}).get("next_index", 0))
+                curr = min(next_idx + 1, targ) if targ > 0 else 0
+                st.session_state.story_pack_index = next_idx
+                st.session_state.story_pack_total = targ
+            else:
+                curr = architect.current_scene_num
+                targ = architect.target_scene_count
+        else:
+            curr = architect.current_scene_num
+            targ = architect.target_scene_count
         scene = st.session_state.get("scene_data")
         base_id = scene.get('scene_id') if scene else "unknown"
         weaver = st.session_state.weaver
@@ -357,6 +411,23 @@ else:
         progress_val = min(curr / targ, 1.0) if targ > 0 else 0
         st.progress(progress_val, text=f"📖 Progress: Scene {curr} of {targ}")
 
+        if st.session_state.get("story_pack_mode"):
+            status_pack = DashboardUtils.load_story_pack(current_config["book_id"])
+            status_path = DashboardUtils.get_story_pack_path(current_config["book_id"])
+            if status_pack:
+                status_total = len(status_pack.get("scenes", []))
+                status_next = int(status_pack.get("progress", {}).get("next_index", 0))
+                status_saved = len(status_pack.get("progress", {}).get("saved_scene_ids", []))
+                status_remaining = max(status_total - status_next, 0)
+                st.info(
+                    f"📦 Story Pack Status | File: {status_path} | "
+                    f"Saved: {status_saved}/{status_total} | "
+                    f"Next Scene Index: {status_next + 1 if status_next < status_total else status_total} | "
+                    f"Remaining: {status_remaining}"
+                )
+            else:
+                st.warning(f"Story pack mode is enabled, but no pack file was found yet: {status_path}")
+
         st.divider()
 
         # Phase: Character Selection
@@ -368,7 +439,7 @@ else:
                 # the project path is always based on the book_id, not the hero or
                 # scene count; this avoids creating multiple folders for a single
                 # adventure.  active_book_id was computed earlier in the script.
-                project_path = os.path.join(current_dir, "..", "data", "output", active_book_id)
+                project_path = active_project_dir
 
                 # 2. Set the path in session and initialize/overwrite
                 st.session_state.active_project_path = project_path
@@ -390,7 +461,37 @@ else:
         if st.session_state.scene_data is None:
             with st.spinner("🕵️ Architect is drafting..."):
                 try:
-                    if st.session_state.node_id == "intro":
+                    if st.session_state.get("story_pack_mode"):
+                        # Generate once, persist to disk, then consume scenes one by one.
+                        story_pack = DashboardUtils.load_story_pack(current_config["book_id"])
+                        if not story_pack:
+                            saved_char = DashboardUtils.get_protagonist_from_ink(current_config["book_id"])
+                            p_name = saved_char.get('name') if saved_char else None
+                            scene_target = int(st.session_state.get("story_pack_target_scenes", 12))
+                            generated_pack = st.session_state.architect.generate_story_pack(
+                                protagonist_name=p_name,
+                                scene_count=scene_target
+                            )
+                            if not generated_pack:
+                                st.error("Story pack generation failed. Try a smaller scene count.")
+                                st.stop()
+                            path = DashboardUtils.create_story_pack(current_config["book_id"], generated_pack)
+                            if not path:
+                                st.error("Could not persist generated story pack to disk.")
+                                st.stop()
+                            st.info(f"Saved story pack: {path}")
+
+                        idx, total, next_scene = DashboardUtils.get_next_story_pack_scene(current_config["book_id"])
+                        st.session_state.story_pack_index = idx if idx is not None else total
+                        st.session_state.story_pack_total = total
+                        if next_scene is None:
+                            st.session_state.current_step = "finished"
+                            st.session_state.adventure_finished = True
+                            st.rerun()
+                        data = next_scene
+                        st.session_state.node_id = data.get('scene_id', f"scene_{(idx or 0) + 1}")
+
+                    elif st.session_state.node_id == "intro":
                         saved_char = DashboardUtils.get_protagonist_from_ink(current_config["book_id"])
                         p_name = saved_char.get('name') if saved_char else None
                         data = st.session_state.architect.initialize_engine(protagonist_name=p_name)
@@ -489,12 +590,14 @@ else:
 
                         # Save the finale node and immediately compile JSON, then reset state
                         DashboardUtils.finalize_ink_node(base_id, conclusion_data)
+                        if st.session_state.get("story_pack_mode"):
+                            DashboardUtils.advance_story_pack(current_config["book_id"], conclusion_data)
                         book_id = current_config.get("book_id")
                         project_folder = None
                         if "smith" in st.session_state and hasattr(st.session_state.smith, "base_dir"):
                             project_folder = st.session_state.smith.base_dir
                         else:
-                            project_folder = os.path.join(current_dir, "..", "data", "output", book_id)
+                            project_folder = DashboardUtils.get_project_output_dir(book_id=book_id)
                         json_path = os.path.join(project_folder, "adventure.json")
                         try:
                             with st.spinner("📦 Compiling .ink to .json..."):
@@ -517,6 +620,8 @@ else:
                     if st.button("🏁 Finish Adventure", type="primary", use_container_width=True):
                         st.session_state["adventure_finished"] = True
                         DashboardUtils.finalize_ink_node(base_id, scene)
+                        if st.session_state.get("story_pack_mode"):
+                            DashboardUtils.advance_story_pack(current_config["book_id"], scene)
 
                         # determine project folder / book id for compilation
                         book_id = current_config.get("book_id")
@@ -524,7 +629,7 @@ else:
                         if "smith" in st.session_state and hasattr(st.session_state.smith, "base_dir"):
                             project_folder = st.session_state.smith.base_dir
                         else:
-                            project_folder = os.path.join(current_dir, "..", "data", "output", book_id)
+                            project_folder = DashboardUtils.get_project_output_dir(book_id=book_id)
                         ink_path = os.path.join(project_folder, "adventure.ink")
                         json_path = os.path.join(project_folder, "adventure.json")
 
@@ -549,4 +654,6 @@ else:
                 else:
                     if st.button("🎬 Save & Proceed", type="secondary", use_container_width=True):
                         DashboardUtils.finalize_ink_node(base_id, scene)
+                        if st.session_state.get("story_pack_mode"):
+                            DashboardUtils.advance_story_pack(current_config["book_id"], scene)
                         st.rerun()

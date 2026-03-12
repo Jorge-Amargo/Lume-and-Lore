@@ -36,9 +36,12 @@ class VisualWeaver:
             print(f"⚠️ VisualWeaver received non-URL api_url '{api_url}'. Falling back to http://127.0.0.1:7860")
             self.base_url = "http://127.0.0.1:7860"
         
-        # FIX: Ensure the output directory is also absolute
-        # This points to: .../Lume_and_Lore/data/output/[ID]/assets
-        self.output_dir = os.path.join(current_dir, "..", "data", "output", str(self.config['book_id']), "assets")
+        # Use title-based project folder to support multiple adventures per book.
+        project_dir = DashboardUtils.get_project_output_dir(
+            book_id=self.config.get('book_id'),
+            title=self.config.get('title')
+        )
+        self.output_dir = os.path.join(project_dir, "assets")
         
         # create the directory only if permitted
         if auto_make_dir and not os.path.exists(self.output_dir):

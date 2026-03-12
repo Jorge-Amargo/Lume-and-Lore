@@ -1,5 +1,6 @@
 import os
 import json
+import datetime
 import requests
 import shutil
 import sqlite3
@@ -11,6 +12,34 @@ from session_manager import initialize_session_state, current_dir, BOOKS_DIR, CO
 initialize_session_state()
 
 class DashboardUtils:
+
+    @staticmethod
+    def _title_to_folder_name(title):
+        """Creates a filesystem-safe folder name from an adventure title."""
+        raw = (title or "").strip()
+        if not raw:
+            raw = "Untitled_Adventure"
+        # Preserve case, replace whitespace with underscores, and strip invalid path chars.
+        raw = re.sub(r'\s+', '_', raw)
+        raw = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', raw)
+        raw = re.sub(r'_+', '_', raw).strip('_')
+        return raw or "Untitled_Adventure"
+
+    @staticmethod
+    def get_project_output_dir(book_id=None, title=None):
+        """
+        Resolve the active project directory.
+        Primary target is always the title-based folder so different adventures can
+        coexist for the same source book.
+        """
+        output_root = os.path.join(current_dir, "..", "data", "output")
+        os.makedirs(output_root, exist_ok=True)
+
+        cfg = DashboardUtils.load_config()
+        effective_title = title or cfg.get("title", "New Adventure")
+        title_folder = DashboardUtils._title_to_folder_name(effective_title)
+        title_path = os.path.join(output_root, title_folder)
+        return title_path
    
     @staticmethod
     def update_game_manifest():
@@ -57,7 +86,8 @@ class DashboardUtils:
     @staticmethod
     def get_protagonist_from_ink(book_id):
         """Liest Name und Bio des Helden exklusiv aus der .ink Datei aus."""
-        ink_path = os.path.join(current_dir, "..", "data", "output", book_id, "adventure.ink")
+        output_dir = DashboardUtils.get_project_output_dir(book_id=book_id)
+        ink_path = os.path.join(output_dir, "adventure.ink")
         if not os.path.exists(ink_path): return None
         char = {}
         with open(ink_path, 'r', encoding='utf-8') as f:
@@ -71,7 +101,7 @@ class DashboardUtils:
     @staticmethod
     def initialize_ink_file(book_id, character):
         """Erstellt das .ink-File mit globalen Variablen für den Protagonisten."""
-        output_dir = st.session_state.get("active_project_path", os.path.join(current_dir, "..", "data", "output", book_id))
+        output_dir = st.session_state.get("active_project_path", DashboardUtils.get_project_output_dir(book_id=book_id))
         # OVERWRITE LOGIC: Wipe existing folder if it exists for this combination
         if os.path.exists(output_dir):
             shutil.rmtree(output_dir)
@@ -104,7 +134,7 @@ class DashboardUtils:
         Returns (success: bool, message: str)
         """
         import subprocess
-        output_dir = os.path.join(current_dir, "..", "data", "output", book_id)
+        output_dir = st.session_state.get("active_project_path", DashboardUtils.get_project_output_dir(book_id=book_id))
         ink_path = os.path.join(output_dir, "adventure.ink")
         json_path = os.path.join(output_dir, "adventure.json")
 
@@ -207,10 +237,25 @@ class DashboardUtils:
         # 1. DEFINE NAMES
         current_real_id = scene.get('scene_id', base_id)
         next_placeholder = f"{current_real_id}_NEXT"
+        use_story_pack = bool(st.session_state.get("story_pack_mode", False))
         
         curr_id = st.session_state.node_id
         next_node_id = f"{base_id}_next"
         selected_audio = st.session_state.get('sound_selected_map', {}).get(base_id)
+
+        # In Story Pack mode we know all scene IDs up front, so we can link directly
+        # to the next scene and avoid synthetic "_next" placeholder knots.
+        if use_story_pack:
+            cfg = DashboardUtils.load_config()
+            pack = DashboardUtils.load_story_pack(cfg.get("book_id", ""))
+            if pack:
+                idx = int(pack.get("progress", {}).get("next_index", 0))
+                scenes = pack.get("scenes", [])
+                if idx + 1 < len(scenes):
+                    next_scene = scenes[idx + 1] if isinstance(scenes[idx + 1], dict) else {}
+                    next_node_id = next_scene.get("scene_id", f"scene_{idx+2}")
+                else:
+                    next_node_id = "END"
         
         smith = st.session_state.smith
         
@@ -257,8 +302,9 @@ class DashboardUtils:
         # 4. Check if this is the end (no choices)
         is_end = not scene.get('choices')
         if not is_end:
-            # Create the NEXT placeholder only if the story continues
-            smith.write_placeholder_knot(next_node_id)
+            # Create placeholder knots only for legacy per-scene generation mode.
+            if not use_story_pack and next_node_id != "END":
+                smith.write_placeholder_knot(next_node_id)
             st.session_state.node_id = next_node_id
             st.session_state.current_step = "narrative"
         else:
@@ -373,7 +419,7 @@ class DashboardUtils:
         Scans and deletes old image/sound files for a book to ensure fresh start.
         Returns: (files_deleted_count, cleaned_successfully)
         """
-        output_dir = os.path.join(current_dir, "..", "data", "output", book_id)
+        output_dir = st.session_state.get("active_project_path", DashboardUtils.get_project_output_dir(book_id=book_id))
         
         if not os.path.exists(output_dir):
             return 0, True
@@ -387,6 +433,9 @@ class DashboardUtils:
         ink_path = os.path.join(output_dir, "adventure.ink")
         if os.path.exists(ink_path):
             files_to_delete.append(ink_path)
+        story_pack_path = os.path.join(output_dir, "story_pack.json")
+        if os.path.exists(story_pack_path):
+            files_to_delete.append(story_pack_path)
 
         if os.path.exists(assets_dir):
             for f in os.listdir(assets_dir):
@@ -421,3 +470,102 @@ class DashboardUtils:
         except Exception as e:
             print(f"❌ Cleanup failed: {e}")
             return 0, False
+
+    @staticmethod
+    def get_story_pack_path(book_id):
+        output_dir = st.session_state.get("active_project_path", DashboardUtils.get_project_output_dir(book_id=book_id))
+        return os.path.join(output_dir, "story_pack.json")
+
+    @staticmethod
+    def load_story_pack(book_id):
+        path = DashboardUtils.get_story_pack_path(book_id)
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                return None
+            if "scenes" not in data or not isinstance(data.get("scenes"), list):
+                return None
+            data.setdefault("meta", {})
+            data.setdefault("progress", {})
+            data["progress"].setdefault("next_index", 0)
+            data["progress"].setdefault("saved_scene_ids", [])
+            return data
+        except Exception as e:
+            print(f"⚠️ Could not load story pack: {e}")
+            return None
+
+    @staticmethod
+    def save_story_pack(book_id, pack_data):
+        path = DashboardUtils.get_story_pack_path(book_id)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(pack_data, f, indent=2, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def create_story_pack(book_id, raw_pack):
+        """Persists a freshly generated story pack and initializes resume metadata."""
+        if not isinstance(raw_pack, dict):
+            return None
+        scenes = raw_pack.get("scenes", [])
+        if not isinstance(scenes, list) or not scenes:
+            return None
+
+        pack = {
+            "meta": raw_pack.get("meta", {}),
+            "scenes": scenes,
+            "progress": {
+                "next_index": 0,
+                "saved_scene_ids": []
+            }
+        }
+        pack["meta"]["created_at"] = pack["meta"].get("created_at") or datetime.datetime.utcnow().isoformat() + "Z"
+        return DashboardUtils.save_story_pack(book_id, pack)
+
+    @staticmethod
+    def get_next_story_pack_scene(book_id):
+        """Returns (index, total, scene) or (None, total, None) if completed."""
+        pack = DashboardUtils.load_story_pack(book_id)
+        if not pack:
+            return None, 0, None
+        scenes = pack.get("scenes", [])
+        total = len(scenes)
+        idx = int(pack.get("progress", {}).get("next_index", 0))
+        if idx >= total:
+            return None, total, None
+        scene = scenes[idx]
+        if isinstance(scene, dict):
+            scene.setdefault("scene_id", f"scene_{idx+1}")
+            scene.setdefault("scene_text", "")
+            scene.setdefault("visual_prompt", "")
+            scene.setdefault("audio_prompt", "")
+            scene.setdefault("choices", [])
+        return idx, total, scene
+
+    @staticmethod
+    def advance_story_pack(book_id, edited_scene):
+        """Saves edited scene back into the pack and advances resume cursor."""
+        pack = DashboardUtils.load_story_pack(book_id)
+        if not pack:
+            return False
+        scenes = pack.get("scenes", [])
+        idx = int(pack.get("progress", {}).get("next_index", 0))
+        if idx >= len(scenes):
+            return False
+
+        if isinstance(edited_scene, dict):
+            scenes[idx] = edited_scene
+            scene_id = edited_scene.get("scene_id", f"scene_{idx+1}")
+        else:
+            scene_id = f"scene_{idx+1}"
+
+        saved_ids = pack.get("progress", {}).get("saved_scene_ids", [])
+        if scene_id not in saved_ids:
+            saved_ids.append(scene_id)
+        pack["progress"]["saved_scene_ids"] = saved_ids
+        pack["progress"]["next_index"] = idx + 1
+        DashboardUtils.save_story_pack(book_id, pack)
+        return True

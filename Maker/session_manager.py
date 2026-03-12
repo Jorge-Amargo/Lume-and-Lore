@@ -21,3 +21,7 @@ def initialize_session_state():
         st.session_state.smith = None
         st.session_state.book_pitch = None
         st.session_state.selected_protagonist = None
+        st.session_state.story_pack_mode = False
+        st.session_state.story_pack_target_scenes = 12
+        st.session_state.story_pack_index = 0
+        st.session_state.story_pack_total = 0

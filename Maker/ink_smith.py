@@ -18,8 +18,7 @@ class InkSmith:
         elif "active_project_path" in st.session_state:
             self.base_dir = st.session_state.active_project_path
         else:
-            output_dir = os.path.join(os.path.dirname(__file__), "..", "data", "output")
-            self.base_dir = os.path.join(output_dir, book_id)
+            self.base_dir = DashboardUtils.get_project_output_dir(book_id=book_id)
 
         # only create directory when requested (prevents side effects during sidebar
         # book-selection or resume checks)
